@@ -30,6 +30,39 @@
     });
   }
 
+  // 세력별 시작 금(기본 3000, 국력이 큰 당은 넉넉하게)
+  function buildInitialGold() {
+    var startGold = { tang: 5000, wa: 3500 };
+    var gold = {};
+    S.KINGDOM_ORDER.forEach(function (k) {
+      gold[k] = startGold.hasOwnProperty(k) ? startGold[k] : 3000;
+    });
+    return gold;
+  }
+
+  // 외교 관계 행렬 생성: 중립(0)으로 채운 뒤 역사적 성향을 대칭으로 반영
+  function buildInitialDiplomacy() {
+    var diplomacy = {};
+    S.KINGDOM_ORDER.forEach(function (a) {
+      diplomacy[a] = {};
+      S.KINGDOM_ORDER.forEach(function (b) {
+        if (a === b) return;
+        diplomacy[a][b] = { relation: 0, alliance: false, war: false };
+      });
+    });
+    // 두 세력이 모두 존재할 때만 성향을 대칭으로 부여
+    function seed(a, b, rel) {
+      if (diplomacy[a] && diplomacy[a][b] && diplomacy[b] && diplomacy[b][a]) {
+        diplomacy[a][b].relation = rel;
+        diplomacy[b][a].relation = rel;
+      }
+    }
+    seed('silla', 'tang', 25);    // 나당연합 성향
+    seed('baekje', 'wa', 25);     // 왜의 백제 우호
+    seed('goguryeo', 'tang', -15); // 당의 고구려 원정
+    return diplomacy;
+  }
+
   function createInitialState() {
     return {
       phase: 'title',        // title | kingdom-select | game | victory | defeat
@@ -39,22 +72,9 @@
       year: 400,
       cities: deepCopyCities(S.INITIAL_CITIES),
       generals: deepCopyGenerals(S.GENERALS),
-      gold: { goguryeo: 3000, baekje: 3000, silla: 3000 },
+      gold: buildInitialGold(),
       // 외교 관계: 상대국 -> {relation(-100~100), alliance, war}
-      diplomacy: {
-        goguryeo: {
-          baekje: { relation: 0, alliance: false, war: false },
-          silla: { relation: 0, alliance: false, war: false }
-        },
-        baekje: {
-          goguryeo: { relation: 0, alliance: false, war: false },
-          silla: { relation: 0, alliance: false, war: false }
-        },
-        silla: {
-          goguryeo: { relation: 0, alliance: false, war: false },
-          baekje: { relation: 0, alliance: false, war: false }
-        }
-      },
+      diplomacy: buildInitialDiplomacy(),
       selectedCityId: null,
       battle: null,          // 전투 상태
       firedEvents: {},       // 발생한 이벤트 id 기록
