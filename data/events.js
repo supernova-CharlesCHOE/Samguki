@@ -125,6 +125,98 @@
         api.allCities(state, function (c) { c.defense = Math.min(100, c.defense + 5); });
         return '불교 공인으로 모든 도시의 치안(방어)이 향상되었다.';
       }
+    },
+
+    // ===== 삼국유사(三國遺事) 설화 기반 신규 이벤트 =====
+    {
+      id: 'ichadon',
+      name: '이차돈의 순교',
+      year: 527,
+      turnMin: 3, turnMax: 45,
+      kingdom: 'silla',
+      description: '삼국유사에 이르길, 법흥왕의 신하 이차돈이 불법을 위해 목을 베니 흰 젖이 솟구치고 하늘이 어두워졌다 한다. 이 이적으로 신라가 불교를 공인하고 민심이 하나로 모였다.',
+      effect: function (state, api) {
+        api.boostCity(state, 'geumseong', { defense: 8, commerce: 6 });
+        api.boostCity(state, 'seorabeol', { defense: 6 });
+        return '이차돈의 순교로 신라 왕경(금성·서라벌)의 민심이 안정되었다.';
+      }
+    },
+    {
+      id: 'manpasikjeok',
+      name: '만파식적',
+      year: 682,
+      turnMin: 20, turnMax: 100,
+      kingdom: 'silla',
+      description: '삼국유사에 전하길, 신문왕이 동해의 용에게서 대나무를 얻어 피리를 만드니 이를 불면 적병이 물러가고 병이 나으며 물결이 잔잔해졌다 한다. 신라의 병력이 사기충천한다.',
+      effect: function (state, api) {
+        api.boostKingdomTroops(state, 'silla', 1.12);
+        return '만파식적의 신묘한 가락으로 신라 전군의 병력이 강성해졌다.';
+      }
+    },
+    {
+      id: 'seodongyo',
+      name: '서동요',
+      year: 600,
+      turnMin: 8, turnMax: 70,
+      kingdom: 'baekje',
+      description: '삼국유사에 이르길, 서동(뒷날 무왕)이 서동요를 지어 퍼뜨려 신라 선화공주를 아내로 맞았다 한다. 무왕이 금마저(익산)에 미륵사를 세우니 백제의 국력이 번창한다.',
+      effect: function (state, api) {
+        api.boostCity(state, 'iksan', { commerce: 12, agriculture: 8, defense: 6 });
+        api.boostKingdomGold(state, 'baekje', 800);
+        return '서동요의 지략과 미륵사 건립으로 백제 익산이 크게 번영하였다.';
+      }
+    },
+    {
+      id: 'wonhyo',
+      name: '원효의 화쟁',
+      year: 686,
+      turnMin: 22, turnMax: 110,
+      kingdom: 'silla',
+      description: '삼국유사에 전하길, 원효가 해골물을 마시고 일체유심조를 깨달아 무애가를 부르며 백성 속으로 들어갔다 한다. 불법이 온 나라에 퍼져 삼국의 민심이 두루 안정된다.',
+      effect: function (state, api) {
+        api.allCities(state, function (c) { c.defense = Math.min(100, c.defense + 4); });
+        api.boostKingdomGold(state, 'silla', 700);
+        return '원효의 화쟁 사상으로 온 나라의 치안이 향상되고 신라 국고가 늘었다.';
+      }
+    },
+    {
+      id: 'bulguksa',
+      name: '김대성과 불국사',
+      year: 751,
+      turnMin: 30, turnMax: 140,
+      kingdom: 'silla',
+      description: '삼국유사에 이르길, 김대성이 현생의 부모를 위해 불국사를, 전생의 부모를 위해 석불사(석굴암)를 세웠다 한다. 신라 왕경의 문물이 융성하고 재정이 넉넉해진다.',
+      effect: function (state, api) {
+        api.boostCity(state, 'geumseong', { commerce: 12, agriculture: 6 });
+        api.boostKingdomGold(state, 'silla', 1000);
+        return '불국사와 석굴암의 조영으로 신라 금성의 상업과 국고가 크게 늘었다.';
+      }
+    },
+    {
+      id: 'ondal',
+      name: '바보 온달과 평강공주',
+      year: 590,
+      turnMin: 6, turnMax: 65,
+      kingdom: 'goguryeo',
+      description: '삼국사기 열전과 설화에 전하길, 평강공주가 바보라 불리던 온달을 도와 명장으로 길러내니, 온달이 사냥과 전장에서 으뜸이 되어 신라에 빼앗긴 옛 땅을 되찾고자 출정하였다. 고구려 남부 전선이 강화된다.',
+      effect: function (state, api) {
+        api.boostCity(state, 'hanseong_g', { defense: 10 });
+        api.boostKingdomTroops(state, 'goguryeo', 1.08);
+        return '온달 장군의 분전으로 고구려 한성 방면의 방어와 병력이 강화되었다.';
+      }
+    },
+    {
+      id: 'gwanchang',
+      name: '관창의 분전',
+      year: 660,
+      turnMin: 12, turnMax: 60,
+      kingdom: 'silla',
+      description: '삼국사기에 전하길, 황산벌에서 신라 화랑 관창이 홀로 백제 진영에 돌진하여 사로잡혔다 두 번을 나아가니, 계백이 그 용맹을 아껴 목을 보내었다. 이에 신라군의 사기가 하늘을 찔러 총공격에 나섰다.',
+      effect: function (state, api) {
+        api.boostKingdomTroops(state, 'silla', 1.1);
+        api.raiseTension(state);
+        return '관창의 장렬한 분전으로 신라군의 사기가 치솟고 삼국의 긴장이 고조되었다.';
+      }
     }
   ];
 

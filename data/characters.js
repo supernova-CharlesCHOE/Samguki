@@ -121,6 +121,68 @@
       command: 82, force: 70, intellect: 92, politics: 95,
       loyalty: 100,
       bio: '태종무열왕. 뛰어난 외교로 나당연합을 성사시켜 통일의 기틀을 닦았다.'
+    },
+
+    // ===== 신규 무장: 고구려 (삼국사기·삼국유사) =====
+    {
+      id: 'ondal',
+      name: '온달',
+      kingdom: 'goguryeo',
+      command: 86, force: 94, intellect: 62, politics: 55,
+      loyalty: 92,
+      bio: '삼국사기 열전과 설화에 전하는 고구려 장수. 평강공주의 도움으로 무예를 익혀 명장이 되었고, 신라에 빼앗긴 옛 땅을 되찾고자 출정했다가 아단성에서 전사하였다.'
+    },
+    {
+      id: 'myeongnimdapbu',
+      name: '명림답부',
+      kingdom: 'goguryeo',
+      command: 88, force: 78, intellect: 87, politics: 82,
+      loyalty: 88,
+      bio: '삼국사기에 전하는 고구려의 국상. 좌원 전투에서 후한의 대군을 청야 전술로 궤멸시키고 고구려의 정치를 안정시킨 원로 재상이다.'
+    },
+
+    // ===== 신규 무장: 백제 (삼국사기·삼국유사) =====
+    {
+      id: 'muwang',
+      name: '무왕',
+      kingdom: 'baekje',
+      command: 82, force: 78, intellect: 88, politics: 90,
+      loyalty: 100,
+      bio: '삼국유사 서동요 설화의 주인공인 서동. 신라 선화공주를 아내로 맞았다 전하며, 금마저(익산)에 미륵사를 세워 백제 중흥을 도모한 제30대 왕이다.'
+    },
+    {
+      id: 'heukchisangji',
+      name: '흑치상지',
+      kingdom: 'baekje',
+      command: 92, force: 90, intellect: 80, politics: 68,
+      loyalty: 78,
+      bio: '삼국사기에 전하는 백제 부흥운동의 명장. 임존성을 근거로 나당연합군에 맞서 백제 유민을 규합하였고, 뒷날 당에서도 큰 무공을 세운 용장이다.'
+    },
+
+    // ===== 신규 무장: 신라 (삼국사기·삼국유사) =====
+    {
+      id: 'geochilbu',
+      name: '거칠부',
+      kingdom: 'silla',
+      command: 84, force: 76, intellect: 90, politics: 86,
+      loyalty: 95,
+      bio: '삼국사기에 전하는 신라의 장군이자 재상. 국사를 편찬하고 한강 상류 열 개 군을 공략하여 신라의 영토 확장과 문물 정비에 기여하였다.'
+    },
+    {
+      id: 'ichadon',
+      name: '이차돈',
+      kingdom: 'silla',
+      command: 40, force: 45, intellect: 82, politics: 78,
+      loyalty: 100,
+      bio: '삼국유사에 전하는 신라의 순교자. 법흥왕을 위해 불법을 세우고자 목을 바치니 흰 젖이 솟았다 하며, 그 이적으로 신라가 불교를 공인하는 계기가 되었다.'
+    },
+    {
+      id: 'gwanchang',
+      name: '관창',
+      kingdom: 'silla',
+      command: 62, force: 84, intellect: 60, politics: 50,
+      loyalty: 100,
+      bio: '삼국사기 열전에 전하는 신라의 어린 화랑. 황산벌 전투에서 홀로 백제 진영에 두 번 돌진하여 장렬히 전사하니, 그 용맹이 신라군의 사기를 크게 떨쳤다.'
     }
   ];
 
