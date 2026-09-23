@@ -33,11 +33,49 @@
     ]);
   };
 
+  // ============ 시나리오(개막 국면) 선택 화면 ============
+  Screens['scenario-select'] = function (state) {
+    var scenarios = S.SCENARIOS || [];
+    var cards = scenarios.map(function (sc) {
+      var factionNames = (sc.selectable || S.KINGDOM_ORDER).map(function (id) {
+        return K(id) ? K(id).name : id;
+      }).join(' · ');
+      return el('div.scenario-card', {
+        onClick: function () { store.selectScenario(sc.id); }
+      }, [
+        el('div.scenario-year', { text: sc.year + '년' }),
+        el('h3.scenario-name', { text: sc.name }),
+        el('div.scenario-diff', { text: '난이도 ' + UI.starRating(sc.difficulty || 3) }),
+        el('p.scenario-summary', { text: sc.summary }),
+        el('div.scenario-factions', { text: '가능 세력: ' + factionNames }),
+        el('button.btn.btn-primary.scenario-select-btn', { text: '이 국면으로 시작' })
+      ]);
+    });
+
+    return el('div.screen.select-screen.scenario-screen', null, [
+      el('div.ink-bg'),
+      el('div.select-inner', null, [
+        el('button.btn.btn-ghost.back-btn', { text: '← 타이틀로', onClick: function () { store.goTitle(); } }),
+        el('h2.select-title', { text: '개막 국면을 선택하라' }),
+        el('p.scenario-intro', { text: '한반도 삼국시대의 역사적 분기점 중 하나를 골라 그 시대의 정세로 시작합니다.' }),
+        el('div.scenario-cards', null, cards)
+      ])
+    ]);
+  };
+
   // ============ 국가 선택 화면 ============
-  Screens['kingdom-select'] = function () {
-    var cards = S.KINGDOM_ORDER.map(function (id) {
+  Screens['kingdom-select'] = function (state) {
+    var scenario = state && state.scenarioId ? store.scenarioById(state.scenarioId) : null;
+    var selectable = scenario && scenario.selectable ? scenario.selectable : S.KINGDOM_ORDER;
+    return renderKingdomSelect(selectable, scenario);
+  };
+
+  function renderKingdomSelect(selectable, scenario) {
+    var live = store.getState();
+    var cards = selectable.map(function (id) {
       var k = K(id);
-      var startCities = S.INITIAL_CITIES.filter(function (c) { return c.kingdom === id; });
+      // 시나리오 적용 후의 실제 상태에서 초기 성/병력을 계산
+      var startCities = live.cities.filter(function (c) { return c.kingdom === id; });
       var troops = startCities.reduce(function (s, c) { return s + c.troops; }, 0);
       var rulerGen = S.store.generalById(S.RULERS[id]);
       return el('div.kingdom-card', {
@@ -68,12 +106,13 @@
     return el('div.screen.select-screen', null, [
       el('div.ink-bg'),
       el('div.select-inner', null, [
-        el('button.btn.btn-ghost.back-btn', { text: '← 타이틀로', onClick: function () { store.goTitle(); } }),
+        el('button.btn.btn-ghost.back-btn', { text: '← 국면 선택', onClick: function () { store.newGame(); } }),
         el('h2.select-title', { text: '군주를 선택하라' }),
+        scenario ? el('p.scenario-intro', { text: scenario.year + '년 · ' + scenario.name }) : null,
         el('div.kingdom-cards', null, cards)
       ])
     ]);
-  };
+  }
 
   Screens.getScreen = function (name) { return Screens[name]; };
 

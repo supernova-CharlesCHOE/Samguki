@@ -38,6 +38,7 @@
   function renderSidePanel(state) {
     var items = [
       { name: '무장', overlay: 'generals', icon: '⚔' },
+      { name: '등용', overlay: 'recruit', icon: '🤝' },
       { name: '외교', overlay: 'diplomacy', icon: '🕊' },
       { name: '연표', overlay: 'log', icon: '📜' }
     ];
@@ -155,12 +156,16 @@
   // ============ 오버레이 라우팅 ============
   function renderOverlay(state) {
     if (state.pendingEvent) return renderEvent(state);
+    if (state.pendingReport) return renderReport(state);
     if (!state.overlay) return null;
     var body;
     if (state.overlay === 'internal') body = S.Overlays.internal(state);
     else if (state.overlay === 'diplomacy') body = S.Overlays.diplomacy(state);
     else if (state.overlay === 'generals') body = S.Overlays.generals(state);
     else if (state.overlay === 'battle') body = S.Overlays.battle(state);
+    else if (state.overlay === 'duel') body = S.Overlays.duel(state);
+    else if (state.overlay === 'debate') body = S.Overlays.debate(state);
+    else if (state.overlay === 'recruit') body = S.Overlays.recruit(state);
     else if (state.overlay === 'log') body = renderFullLog(state);
     else return null;
 
@@ -178,6 +183,26 @@
       el('div.log-list', null, state.eventLog.map(function (e) {
         return el('div.log-entry', { text: '[' + e.year + '년/' + e.turn + '턴] ' + e.text });
       }))
+    ]);
+  }
+
+  // ============ 턴 결과 보고 팝업 (재해 / 합종연횡) ============
+  function renderReport(state) {
+    var rep = state.pendingReport;
+    return el('div.overlay-backdrop', null, [
+      el('div.event-popup', null, [
+        el('div.event-scroll.report-scroll', null, [
+          el('div.event-year', { text: state.year + '년 · ' + state.turn + '턴' }),
+          el('h2.event-name', { text: '정세 보고' }),
+          el('div.report-lines', null, rep.lines.map(function (ln) {
+            return el('div.report-line', null, [
+              el('div.report-line-title', { text: ln.title }),
+              el('div.report-line-text', { text: ln.text })
+            ]);
+          })),
+          el('button.btn.btn-primary', { text: '확인', onClick: function () { store.dismissReport(); } })
+        ])
+      ])
     ]);
   }
 

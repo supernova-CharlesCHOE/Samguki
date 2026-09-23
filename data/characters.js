@@ -243,6 +243,53 @@
       command: 78, force: 88, intellect: 70, politics: 58,
       loyalty: 90,
       bio: '백강 전투에 참전한 왜의 용장. 불리한 전세 속에서도 끝까지 분전하여 백제 부흥군을 도우려 하였다.'
+    },
+
+    // ===== 재야(在野) 무장 — 무소속. 등용하여 아군으로 삼을 수 있다 =====
+    {
+      id: 'kim_saedae',
+      name: '검모잠',
+      kingdom: 'free',
+      command: 85, force: 82, intellect: 80, politics: 72,
+      loyalty: 40,
+      free: true,
+      bio: '삼국사기에 전하는 고구려 부흥운동의 장수. 유민을 규합하여 옛 고구려를 되살리고자 안승을 왕으로 받들고 당에 맞섰다.'
+    },
+    {
+      id: 'boktukseong',
+      name: '복신',
+      kingdom: 'free',
+      command: 88, force: 84, intellect: 82, politics: 66,
+      loyalty: 40,
+      free: true,
+      bio: '삼국사기에 전하는 백제 부흥운동의 지도자. 주류성을 근거로 왜에서 부여풍을 맞아들여 나당연합에 거세게 저항하였다.'
+    },
+    {
+      id: 'dochim',
+      name: '도침',
+      kingdom: 'free',
+      command: 80, force: 70, intellect: 86, politics: 74,
+      loyalty: 40,
+      free: true,
+      bio: '백제 부흥운동에 가담한 승려 장수. 복신과 함께 주류성에서 군을 일으켜 당군에 맞선 지략가이다.'
+    },
+    {
+      id: 'sadaham',
+      name: '사다함',
+      kingdom: 'free',
+      command: 74, force: 86, intellect: 68, politics: 60,
+      loyalty: 45,
+      free: true,
+      bio: '삼국사기 열전에 전하는 신라의 어린 화랑. 대가야 정벌에 자원하여 선봉으로 큰 공을 세운 재기 넘치는 낭도이다.'
+    },
+    {
+      id: 'usan',
+      name: '우륵',
+      kingdom: 'free',
+      command: 40, force: 35, intellect: 88, politics: 82,
+      loyalty: 45,
+      free: true,
+      bio: '가야 출신의 악성. 가야금 열두 곡을 지어 신라에 귀의하니, 그 음률이 나라의 문물을 크게 빛냈다.'
     }
   ];
 
