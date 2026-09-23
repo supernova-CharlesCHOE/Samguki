@@ -183,6 +183,113 @@
       command: 62, force: 84, intellect: 60, politics: 50,
       loyalty: 100,
       bio: '삼국사기 열전에 전하는 신라의 어린 화랑. 황산벌 전투에서 홀로 백제 진영에 두 번 돌진하여 장렬히 전사하니, 그 용맹이 신라군의 사기를 크게 떨쳤다.'
+    },
+
+    // ===== 당나라 (唐) =====
+    {
+      id: 'taizong',
+      name: '당태종',
+      kingdom: 'tang',
+      command: 95, force: 88, intellect: 92, politics: 96,
+      loyalty: 100,
+      bio: '당 제2대 황제 이세민. 정관의 치로 대제국의 기틀을 다졌고 친히 대군을 이끌어 고구려 원정에 나섰다.'
+    },
+    {
+      id: 'sujeongbang',
+      name: '소정방',
+      kingdom: 'tang',
+      command: 93, force: 90, intellect: 84, politics: 70,
+      loyalty: 92,
+      bio: '나당연합의 당군 총관. 대군을 이끌고 바다를 건너 백제를 공격하여 사비성을 함락시킨 당의 명장이다.'
+    },
+    {
+      id: 'ijeok',
+      name: '이적',
+      kingdom: 'tang',
+      command: 90, force: 82, intellect: 88, politics: 80,
+      loyalty: 90,
+      bio: '본명 서세적. 당 초기의 원로 명장으로 수많은 정벌을 승리로 이끌었고 뒷날 고구려 원정을 총지휘하였다.'
+    },
+    {
+      id: 'seolingwi',
+      name: '설인귀',
+      kingdom: 'tang',
+      command: 86, force: 95, intellect: 76, politics: 62,
+      loyalty: 88,
+      bio: '흰 갑옷을 두르고 선봉에 서던 당의 맹장. 안시성과 고구려 전선에서 용맹을 떨쳐 이름을 크게 알렸다.'
+    },
+
+    // ===== 왜 (倭) =====
+    {
+      id: 'waking',
+      name: '왜왕',
+      kingdom: 'wa',
+      command: 80, force: 72, intellect: 82, politics: 88,
+      loyalty: 100,
+      bio: '열도의 왜를 다스리는 군주. 백제와 오랜 우호를 맺어 백제 부흥을 위해 대규모 수군을 바다 건너로 파견하였다.'
+    },
+    {
+      id: 'abenohirafu',
+      name: '아베노 히라부',
+      kingdom: 'wa',
+      command: 84, force: 86, intellect: 78, politics: 66,
+      loyalty: 92,
+      bio: '왜의 수군을 이끈 장수. 북방 원정과 해상 작전에 능하여 백강으로 향하는 왜 함대의 선봉을 맡았다.'
+    },
+    {
+      id: 'echinotakutsu',
+      name: '에치노 다쿠쓰',
+      kingdom: 'wa',
+      command: 78, force: 88, intellect: 70, politics: 58,
+      loyalty: 90,
+      bio: '백강 전투에 참전한 왜의 용장. 불리한 전세 속에서도 끝까지 분전하여 백제 부흥군을 도우려 하였다.'
+    },
+
+    // ===== 재야(在野) 무장 — 무소속. 등용하여 아군으로 삼을 수 있다 =====
+    {
+      id: 'kim_saedae',
+      name: '검모잠',
+      kingdom: 'free',
+      command: 85, force: 82, intellect: 80, politics: 72,
+      loyalty: 40,
+      free: true,
+      bio: '삼국사기에 전하는 고구려 부흥운동의 장수. 유민을 규합하여 옛 고구려를 되살리고자 안승을 왕으로 받들고 당에 맞섰다.'
+    },
+    {
+      id: 'boktukseong',
+      name: '복신',
+      kingdom: 'free',
+      command: 88, force: 84, intellect: 82, politics: 66,
+      loyalty: 40,
+      free: true,
+      bio: '삼국사기에 전하는 백제 부흥운동의 지도자. 주류성을 근거로 왜에서 부여풍을 맞아들여 나당연합에 거세게 저항하였다.'
+    },
+    {
+      id: 'dochim',
+      name: '도침',
+      kingdom: 'free',
+      command: 80, force: 70, intellect: 86, politics: 74,
+      loyalty: 40,
+      free: true,
+      bio: '백제 부흥운동에 가담한 승려 장수. 복신과 함께 주류성에서 군을 일으켜 당군에 맞선 지략가이다.'
+    },
+    {
+      id: 'sadaham',
+      name: '사다함',
+      kingdom: 'free',
+      command: 74, force: 86, intellect: 68, politics: 60,
+      loyalty: 45,
+      free: true,
+      bio: '삼국사기 열전에 전하는 신라의 어린 화랑. 대가야 정벌에 자원하여 선봉으로 큰 공을 세운 재기 넘치는 낭도이다.'
+    },
+    {
+      id: 'usan',
+      name: '우륵',
+      kingdom: 'free',
+      command: 40, force: 35, intellect: 88, politics: 82,
+      loyalty: 45,
+      free: true,
+      bio: '가야 출신의 악성. 가야금 열두 곡을 지어 신라에 귀의하니, 그 음률이 나라의 문물을 크게 빛냈다.'
     }
   ];
 
@@ -190,7 +297,9 @@
   var RULERS = {
     goguryeo: 'gwanggaeto',
     baekje: 'geunchogo',
-    silla: 'kimyusin'
+    silla: 'kimyusin',
+    tang: 'taizong',
+    wa: 'waking'
   };
 
   global.SAMGUK = global.SAMGUK || {};

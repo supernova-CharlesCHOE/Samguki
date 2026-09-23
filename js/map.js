@@ -22,6 +22,19 @@
     'L270 160 L255 120 L270 90 L230 70 L180 78 ' +
     'L140 70 L90 78 L60 60 Z';
 
+  // 북서 대륙 (당). Tang 도시 좌표 changan(60,90) luoyang(110,150) ansi(90,235) 뒤 (x 0-160, y 0-300)
+  var CONTINENT_PATH =
+    'M0 0 L170 0 L165 40 L150 80 L160 130 ' +
+    'L140 175 L155 220 L130 265 L150 305 ' +
+    'L90 300 L40 285 L0 300 Z';
+
+  // 남동 섬 (왜). Wa 도시 좌표 asuka(560,470) naniwa(500,420) 뒤 (x 460-620, y 370-570)
+  var ISLAND_PATHS = [
+    'M470 400 L520 385 L575 400 L600 445 L590 500 ' +
+    'L555 540 L510 525 L478 485 L465 440 Z',
+    'M560 545 L600 535 L615 565 L590 590 L555 580 Z'
+  ];
+
   function kingdomColor(kingdom) {
     if (kingdom === 'neutral') return '#5a5346';
     return S.KINGDOMS[kingdom].color;
@@ -34,7 +47,7 @@
   // 지도 렌더. 반환: SVG 엘리먼트
   function render(state) {
     var root = svg('svg', {
-      viewBox: '0 0 400 620',
+      viewBox: '0 0 640 640',
       class: 'map-svg',
       preserveAspectRatio: 'xMidYMid meet'
     });
@@ -49,12 +62,41 @@
       '<path d="M0 10 Q5 6 10 10 T20 10" stroke="#1f3a52" stroke-width="1" fill="none"/></pattern>';
     root.appendChild(defs);
 
-    root.appendChild(svg('rect', { x: 0, y: 0, width: 400, height: 620, fill: 'url(#sea)' }));
+    root.appendChild(svg('rect', { x: 0, y: 0, width: 640, height: 640, fill: 'url(#sea)' }));
 
-    // 육지
+    // 북서 대륙 (당나라). 당 도시 좌표 뒤에 위치
+    root.appendChild(svg('path', {
+      d: CONTINENT_PATH, fill: 'url(#landGrad)', stroke: '#6b7a4a', 'stroke-width': 2
+    }));
+
+    // 남동 섬 (왜). 왜 도시 좌표 뒤에 위치
+    ISLAND_PATHS.forEach(function (d) {
+      root.appendChild(svg('path', {
+        d: d, fill: 'url(#landGrad)', stroke: '#6b7a4a', 'stroke-width': 2
+      }));
+    });
+
+    // 한반도 + 만주 육지
     root.appendChild(svg('path', {
       d: PENINSULA_PATH, fill: 'url(#landGrad)', stroke: '#6b7a4a', 'stroke-width': 2
     }));
+
+    // 지역 라벨 (은은한 지도 텍스트)
+    [
+      { x: 70, y: 60, big: '大唐', small: '당' },
+      { x: 545, y: 405, big: '倭', small: '왜' }
+    ].forEach(function (m) {
+      var big = svg('text', {
+        x: m.x, y: m.y, 'text-anchor': 'middle', class: 'map-region-label'
+      });
+      big.textContent = m.big;
+      root.appendChild(big);
+      var small = svg('text', {
+        x: m.x, y: m.y + 20, 'text-anchor': 'middle', class: 'map-region-sub'
+      });
+      small.textContent = m.small;
+      root.appendChild(small);
+    });
 
     // 세력 영향권 (도시 주변 색 원)
     state.cities.forEach(function (c) {

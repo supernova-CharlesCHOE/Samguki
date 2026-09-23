@@ -217,6 +217,36 @@
         api.raiseTension(state);
         return '관창의 장렬한 분전으로 신라군의 사기가 치솟고 삼국의 긴장이 고조되었다.';
       }
+    },
+
+    // ===== 당·왜 참전 신규 이벤트 =====
+    {
+      id: 'baekgang',
+      name: '백강 전투',
+      year: 663,
+      turnMin: 16, turnMax: 90,
+      kingdom: 'wa',
+      description: '백제 부흥을 위해 바다를 건너온 왜의 대함대가 백강 어귀에서 나당연합 수군과 맞붙었다. 왜와 백제의 결의가 굳건해진다.',
+      effect: function (state, api) {
+        api.boostKingdomTroops(state, 'wa', 1.12);
+        api.boostKingdomDefense(state, 'baekje', 8);
+        api.raiseTension(state);
+        return '백강 전투로 왜의 수군이 강화되고 백제 각 성의 방어가 굳건해졌다.';
+      }
+    },
+    {
+      id: 'ansiseong',
+      name: '안시성 싸움',
+      year: 645,
+      turnMin: 12, turnMax: 80,
+      kingdom: 'tang',
+      description: '당태종이 친히 대군을 이끌고 요동으로 진격하여 안시성을 포위했다. 당의 군세가 요서 전선으로 몰려든다.',
+      effect: function (state, api) {
+        api.boostKingdomTroops(state, 'tang', 1.1);
+        api.boostCity(state, 'ansi', { defense: 6 });
+        api.raiseTension(state);
+        return '안시성 싸움으로 당의 병력이 강화되고 요서 전선의 긴장이 고조되었다.';
+      }
     }
   ];
 

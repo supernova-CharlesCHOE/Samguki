@@ -107,9 +107,25 @@
       c.generals.forEach(function (gid) { loc[gid] = c; });
     });
 
+    // 삼혼 수련 보너스를 반영한 유효 능력치 막대(수련분은 밝은 색으로 덧표시하지 않고 합산 표시)
+    function statWithSpirit(label, g, key, color) {
+      var eff = store.effStat(g, key);
+      var bonus = eff - (g[key] || 0);
+      var lbl = bonus > 0 ? label + '↑' : label;
+      return UI.statBar(lbl, eff, color);
+    }
+
+    function spiritCmd(g, kind, label) {
+      return el('button.btn.spirit-btn', {
+        disabled: state.gold[pk] < 250,
+        onClick: function () { store.trainGeneral(g.id, kind); }
+      }, [el('span', { text: label }), el('span.spirit-val', { text: String((g.spirit && g.spirit[kind]) || 0) })]);
+    }
+
     function card(g, locked) {
       var color = K(g.kingdom).colorLight;
       var assignment = loc[g.id] ? loc[g.id].name : '재야';
+      var mineCard = !locked && g.kingdom === pk;
       return el('div.general-card' + (locked ? '.locked' : ''), { style: { '--kcolor': K(g.kingdom).color } }, [
         el('div.general-top', null, [
           UI.avatar(locked ? '?' : g.name, color, 52),
@@ -120,18 +136,29 @@
         ]),
         locked ? el('div.general-locked-note', { text: '아직 정보가 알려지지 않았다.' }) :
           el('div.general-stats', null, [
-            UI.statBar('통솔', g.command, '#c0392b'),
-            UI.statBar('무력', g.force, '#e67e22'),
-            UI.statBar('지력', g.intellect, '#2980b9'),
-            UI.statBar('정치', g.politics, '#27ae60'),
+            statWithSpirit('통솔', g, 'command', '#c0392b'),
+            statWithSpirit('무력', g, 'force', '#e67e22'),
+            statWithSpirit('지력', g, 'intellect', '#2980b9'),
+            statWithSpirit('정치', g, 'politics', '#27ae60'),
             el('div.general-loyalty', { text: '충성 ' + g.loyalty }),
-            el('p.general-bio', { text: g.bio })
+            (g.sworn && g.sworn.length) ? el('div.general-sworn', {
+              text: '의형제: ' + g.sworn.map(function (sid) { var s = store.generalById(sid); return s ? s.name : ''; }).filter(Boolean).join(', ')
+            }) : null,
+            el('p.general-bio', { text: g.bio }),
+            mineCard ? el('div.spirit-row', null, [
+              el('div.spirit-title', { text: '삼혼 수련 (250금)' }),
+              el('div.spirit-btns', null, [
+                spiritCmd(g, 'command', '통솔혼'),
+                spiritCmd(g, 'martial', '무혼'),
+                spiritCmd(g, 'mind', '지혼')
+              ])
+            ]) : null
           ])
       ]);
     }
 
     var mine = state.generals.filter(function (g) { return g.kingdom === pk; });
-    var enemy = state.generals.filter(function (g) { return g.kingdom !== pk; });
+    var enemy = state.generals.filter(function (g) { return g.kingdom !== pk && g.kingdom !== 'free'; });
 
     return el('div.overlay-panel.generals-panel', null, [
       head('무장 열전'),
@@ -176,10 +203,12 @@
         el('button.btn.btn-primary.btn-lg', { text: '전투 종료', onClick: function () { store.endBattle(); } })
       ]);
     } else {
+      var canDuel = b.atkGen && b.defGen;
       controls = el('div.battle-controls', null, [
         el('button.btn.btn-danger', { text: '총공격', onClick: function () { store.battleAction('attack'); } }),
         el('button.btn', { text: '방어', onClick: function () { store.battleAction('defend'); } }),
         el('button.btn.btn-primary', { text: '필살전법', onClick: function () { store.battleAction('special'); } }),
+        canDuel ? el('button.btn.btn-duel', { text: '일기토', onClick: function () { store.startDuelFromBattle(); } }) : null,
         el('button.btn.btn-ghost', { text: '퇴각', onClick: function () { store.battleAction('retreat'); } })
       ]);
     }
@@ -235,10 +264,184 @@
     return s;
   }
 
+  // ============ 일기토(무장 대결) ============
+  function duel(state) {
+    var b = state.duel;
+    if (!b) return el('div.overlay-panel', null, [head('일기토'), el('p', { text: '진행중인 대결이 없습니다.' })]);
+    var a = store.generalById(b.aId);
+    var d = store.generalById(b.dId);
+
+    function fighter(cls, title, g, hp) {
+      var color = g && g.kingdom !== 'neutral' && K(g.kingdom) ? K(g.kingdom).colorLight : '#7a7060';
+      var kcolor = g && g.kingdom !== 'neutral' && K(g.kingdom) ? K(g.kingdom).color : '#5a5346';
+      return el('div.battle-side.' + cls, { style: { '--kcolor': kcolor } }, [
+        el('div.battle-side-title', { text: title }),
+        UI.avatar(g ? g.name : '?', color, 56),
+        el('div.battle-gen-name', { text: g ? g.name : '무장' }),
+        g ? el('div.battle-gen-stat', { text: '무' + store.effStat(g, 'force') + ' 통' + store.effStat(g, 'command') }) : null,
+        el('div.battle-troop-bar', null, [el('div.battle-troop-fill', { style: { width: hp + '%' } })]),
+        el('div.battle-troop-num', { text: '기력 ' + hp })
+      ]);
+    }
+
+    var controls;
+    if (b.over) {
+      controls = el('div.battle-controls', null, [
+        el('div.battle-result.' + (b.result === 'win' ? 'win' : 'lose'), {
+          text: b.result === 'win' ? '승리! ' + (d ? d.name : '적장') + '을(를) 꺾었다.' : '패배...'
+        }),
+        el('button.btn.btn-primary.btn-lg', { text: '대결 종료', onClick: function () { store.endDuel(); } })
+      ]);
+    } else {
+      controls = el('div.battle-controls', null, [
+        el('button.btn.btn-danger', { text: '맹공', onClick: function () { store.duelAction('strike'); } }),
+        el('button.btn', { text: '신중', onClick: function () { store.duelAction('guard'); } }),
+        el('button.btn.btn-primary', { text: '허허실실', onClick: function () { store.duelAction('feint'); } }),
+        el('button.btn.btn-ghost', { text: '물러서기', onClick: function () { store.duelAction('yield'); } })
+      ]);
+    }
+
+    return el('div.overlay-panel.battle-panel', null, [
+      el('div.overlay-head', null, [el('h2', { text: '일기토 · 제' + b.round + '합' })]),
+      el('div.battle-arena', null, [
+        fighter('atk', '도전', a, b.aHp),
+        el('div.duel-vs', { text: '⚔' }),
+        fighter('def', '상대', d, b.dHp)
+      ]),
+      controls,
+      el('div.battle-log', null, b.log.slice(0, 8).map(function (line) {
+        return el('div.battle-log-line', { text: line });
+      }))
+    ]);
+  }
+
+  // ============ 설전(논쟁) ============
+  function debate(state) {
+    var b = state.debate;
+    if (!b) return el('div.overlay-panel', null, [head('설전'), el('p', { text: '진행중인 논쟁이 없습니다.' })]);
+    var a = store.generalById(b.aId);
+    var d = store.generalById(b.dId);
+
+    function speaker(cls, title, g, resolve) {
+      var color = g && g.kingdom !== 'neutral' && K(g.kingdom) ? K(g.kingdom).colorLight : '#7a7060';
+      var kcolor = g && g.kingdom !== 'neutral' && K(g.kingdom) ? K(g.kingdom).color : '#5a5346';
+      return el('div.battle-side.' + cls, { style: { '--kcolor': kcolor } }, [
+        el('div.battle-side-title', { text: title }),
+        UI.avatar(g ? g.name : '?', color, 56),
+        el('div.battle-gen-name', { text: g ? g.name : '무장' }),
+        g ? el('div.battle-gen-stat', { text: '지' + store.effStat(g, 'intellect') + ' 정' + store.effStat(g, 'politics') }) : null,
+        el('div.battle-troop-bar', null, [el('div.battle-troop-fill', { style: { width: resolve + '%' } })]),
+        el('div.battle-troop-num', { text: '논지 ' + resolve })
+      ]);
+    }
+
+    var controls;
+    if (b.over) {
+      controls = el('div.battle-controls', null, [
+        el('div.battle-result.' + (b.result === 'win' ? 'win' : 'lose'), {
+          text: b.result === 'win' ? '승리! ' + (d ? d.name : '상대') + '을(를) 논파했다.' : '논파당했다...'
+        }),
+        el('button.btn.btn-primary.btn-lg', { text: '설전 종료', onClick: function () { store.endDebate(); } })
+      ]);
+    } else {
+      controls = el('div.battle-controls', null, [
+        el('button.btn.btn-danger', { text: '정론', onClick: function () { store.debateAction('logic'); } }),
+        el('button.btn.btn-primary', { text: '달변', onClick: function () { store.debateAction('rhetoric'); } }),
+        el('button.btn', { text: '반문', onClick: function () { store.debateAction('probe'); } }),
+        el('button.btn.btn-ghost', { text: '수긍', onClick: function () { store.debateAction('concede'); } })
+      ]);
+    }
+
+    return el('div.overlay-panel.battle-panel', null, [
+      el('div.overlay-head', null, [el('h2', { text: '설전 · 제' + b.round + '합' })]),
+      el('div.battle-arena', null, [
+        speaker('atk', '도전', a, b.aResolve),
+        el('div.duel-vs', { text: '☯' }),
+        speaker('def', '상대', d, b.dResolve)
+      ]),
+      controls,
+      el('div.battle-log', null, b.log.slice(0, 8).map(function (line) {
+        return el('div.battle-log-line', { text: line });
+      }))
+    ]);
+  }
+
+  // ============ 등용 / 의형제 ============
+  function recruit(state) {
+    var pk = state.playerKingdom;
+    var gold = state.gold[pk];
+    var targets = store.recruitableGenerals();
+
+    function targetCard(g) {
+      var isFree = g.free;
+      var cost = isFree ? 800 : 1500;
+      var chance = store.recruitChance(g);
+      var color = g.kingdom !== 'free' && K(g.kingdom) ? K(g.kingdom).colorLight : '#9a8d6f';
+      var origin = isFree ? '재야' : (K(g.kingdom) ? K(g.kingdom).name : g.kingdom);
+      return el('div.recruit-card', null, [
+        el('div.general-top', null, [
+          UI.avatar(g.name, color, 48),
+          el('div.general-id', null, [
+            el('div.general-name', { text: g.name }),
+            el('div.general-kingdom', { text: origin + ' · 충성 ' + g.loyalty })
+          ])
+        ]),
+        el('div.recruit-stats', { text: '통' + store.effStat(g, 'command') + ' 무' + store.effStat(g, 'force') + ' 지' + store.effStat(g, 'intellect') + ' 정' + store.effStat(g, 'politics') }),
+        el('div.recruit-chance', { text: '등용 성공률 ' + chance + '%' }),
+        el('button.btn.btn-primary', {
+          text: '등용 (' + cost + '금)',
+          disabled: gold < cost,
+          onClick: function () { store.recruitTarget(g.id); }
+        })
+      ]);
+    }
+
+    // 의형제 결의 섹션
+    var mine = state.generals.filter(function (g) { return g.kingdom === pk; });
+    var swornBody;
+    if (mine.length < 2) {
+      swornBody = el('p.recruit-empty', { text: '의형제를 맺으려면 아군 무장이 둘 이상이어야 합니다.' });
+    } else {
+      var selA = el('select.sworn-select');
+      var selB = el('select.sworn-select');
+      mine.forEach(function (g) {
+        var oa = document.createElement('option'); oa.value = g.id; oa.textContent = g.name; selA.appendChild(oa);
+        var ob = document.createElement('option'); ob.value = g.id; ob.textContent = g.name; selB.appendChild(ob);
+      });
+      if (mine.length > 1) selB.selectedIndex = 1;
+      swornBody = el('div.sworn-form', null, [
+        selA,
+        el('span.sworn-amp', { text: '⨯' }),
+        selB,
+        el('button.btn.btn-primary', {
+          text: '의형제 결의 (500금)',
+          disabled: gold < 500,
+          onClick: function () { store.swornOath(selA.value, selB.value); }
+        })
+      ]);
+    }
+
+    return el('div.overlay-panel.recruit-panel', null, [
+      head('등용 · 의형제'),
+      el('div.recruit-body', null, [
+        el('div.generals-section-title', { text: '등용 가능한 무장' }),
+        targets.length
+          ? el('div.recruit-grid', null, targets.map(targetCard))
+          : el('p.recruit-empty', { text: '지금 등용할 수 있는 무장이 없습니다. (재야 무장이나 충성이 흔들리는 타국 무장을 노리세요. 설전/일기토로 충성을 떨어뜨릴 수 있습니다.)' }),
+        el('div.generals-section-title', { text: '의형제 결의 (도원결의)' }),
+        swornBody
+      ]),
+      el('div.diplo-gold', { text: '보유 금: ' + gold.toLocaleString() })
+    ]);
+  }
+
   global.SAMGUK.Overlays = {
     internal: internal,
     diplomacy: diplomacy,
     generals: generals,
-    battle: battle
+    battle: battle,
+    duel: duel,
+    debate: debate,
+    recruit: recruit
   };
 })(window);

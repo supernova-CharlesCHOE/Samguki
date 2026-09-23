@@ -25,42 +25,73 @@
       return {
         id: g.id, name: g.name, kingdom: g.kingdom,
         command: g.command, force: g.force, intellect: g.intellect,
-        politics: g.politics, loyalty: g.loyalty, bio: g.bio
+        politics: g.politics, loyalty: g.loyalty, bio: g.bio,
+        // 삼혼(三魂): 통솔혼/무혼/지혼 수련치 (레퍼런스의 Three Spirits)
+        spirit: { command: 0, martial: 0, mind: 0 },
+        exp: 0,               // 수련 경험치
+        sworn: [],            // 의형제로 맺은 무장 id 목록
+        free: g.free === true // 재야(무소속) 무장 여부
       };
     });
   }
 
+  // 세력별 시작 금(기본 3000, 국력이 큰 당은 넉넉하게)
+  function buildInitialGold() {
+    var startGold = { tang: 5000, wa: 3500 };
+    var gold = {};
+    S.KINGDOM_ORDER.forEach(function (k) {
+      gold[k] = startGold.hasOwnProperty(k) ? startGold[k] : 3000;
+    });
+    return gold;
+  }
+
+  // 외교 관계 행렬 생성: 중립(0)으로 채운 뒤 역사적 성향을 대칭으로 반영
+  function buildInitialDiplomacy() {
+    var diplomacy = {};
+    S.KINGDOM_ORDER.forEach(function (a) {
+      diplomacy[a] = {};
+      S.KINGDOM_ORDER.forEach(function (b) {
+        if (a === b) return;
+        diplomacy[a][b] = { relation: 0, alliance: false, war: false };
+      });
+    });
+    // 두 세력이 모두 존재할 때만 성향을 대칭으로 부여
+    function seed(a, b, rel) {
+      if (diplomacy[a] && diplomacy[a][b] && diplomacy[b] && diplomacy[b][a]) {
+        diplomacy[a][b].relation = rel;
+        diplomacy[b][a].relation = rel;
+      }
+    }
+    seed('silla', 'tang', 25);    // 나당연합 성향
+    seed('baekje', 'wa', 25);     // 왜의 백제 우호
+    seed('goguryeo', 'tang', -15); // 당의 고구려 원정
+    return diplomacy;
+  }
+
   function createInitialState() {
     return {
-      phase: 'title',        // title | kingdom-select | game | victory | defeat
-      overlay: null,         // null | internal | diplomacy | battle | generals | event
+      phase: 'title',        // title | scenario-select | kingdom-select | game | victory | defeat
+      overlay: null,         // null | internal | diplomacy | battle | generals | event | duel | debate | recruit | tournament
       playerKingdom: null,
+      scenarioId: null,      // 선택된 시나리오 id
       turn: 1,
       year: 400,
       cities: deepCopyCities(S.INITIAL_CITIES),
       generals: deepCopyGenerals(S.GENERALS),
-      gold: { goguryeo: 3000, baekje: 3000, silla: 3000 },
+      gold: buildInitialGold(),
       // 외교 관계: 상대국 -> {relation(-100~100), alliance, war}
-      diplomacy: {
-        goguryeo: {
-          baekje: { relation: 0, alliance: false, war: false },
-          silla: { relation: 0, alliance: false, war: false }
-        },
-        baekje: {
-          goguryeo: { relation: 0, alliance: false, war: false },
-          silla: { relation: 0, alliance: false, war: false }
-        },
-        silla: {
-          goguryeo: { relation: 0, alliance: false, war: false },
-          baekje: { relation: 0, alliance: false, war: false }
-        }
-      },
+      diplomacy: buildInitialDiplomacy(),
       selectedCityId: null,
       battle: null,          // 전투 상태
       firedEvents: {},       // 발생한 이벤트 id 기록
       eventLog: [],          // 최근 이벤트/알림 로그
       pendingEvent: null,    // 표시 대기중인 이벤트
-      message: null          // 짧은 토스트 메시지
+      message: null,         // 짧은 토스트 메시지
+      duel: null,            // 일기토(무장 대결) 상태
+      debate: null,          // 설전(논쟁) 상태
+      recruitTargetId: null, // 등용 대상 무장 id
+      pendingReport: null,   // 재해/반란 등 턴 결과 보고
+      tournament: null       // 무투대회 상태
     };
   }
 
@@ -105,7 +136,7 @@
   // ---- 액션들 ----
   function newGame() {
     state = createInitialState();
-    state.phase = 'kingdom-select';
+    state.phase = 'scenario-select';
     notify();
   }
 
@@ -114,11 +145,33 @@
     notify();
   }
 
+  function scenarioById(id) {
+    if (!S.SCENARIOS) return null;
+    for (var i = 0; i < S.SCENARIOS.length; i++) if (S.SCENARIOS[i].id === id) return S.SCENARIOS[i];
+    return null;
+  }
+
+  // 시나리오 선택: 국면에 맞게 초기 상태를 조정하고 군주 선택 화면으로 진행
+  function selectScenario(id) {
+    var sc = scenarioById(id);
+    // 상태를 새로 만들되 시나리오 정보 반영 (재선택 시 초기화 보장)
+    state = createInitialState();
+    state.scenarioId = id;
+    if (sc) {
+      state.year = sc.year;
+      state.turn = sc.turn || 1;
+      try { sc.apply(state, eventApi); } catch (e) { /* 방어적: 시나리오 오류 무시 */ }
+    }
+    state.phase = 'kingdom-select';
+    notify();
+  }
+
   function selectKingdom(kingdom) {
     state.playerKingdom = kingdom;
     state.phase = 'game';
-    // 중립 관계 초기값을 약간 부여 (긴장 반영)
-    pushLog(S.KINGDOMS[kingdom].name + '의 군주가 되어 삼국 통일의 대업을 시작한다.');
+    var sc = scenarioById(state.scenarioId);
+    if (sc) pushLog('[' + sc.name + '] ' + S.KINGDOMS[kingdom].name + '의 군주가 되어 대업을 시작한다.');
+    else pushLog(S.KINGDOMS[kingdom].name + '의 군주가 되어 삼국 통일의 대업을 시작한다.');
     notify();
   }
 
@@ -255,7 +308,7 @@
 
   function genStat(id, key, fallback) {
     var g = id ? generalById(id) : null;
-    return g ? g[key] : fallback;
+    return g ? effStat(g, key) : fallback;
   }
 
   function battleAction(action) {
@@ -342,6 +395,355 @@
   function endBattle() {
     state.battle = null;
     state.overlay = null;
+    notify();
+  }
+
+  // ---- 삼혼(三魂) 수련 / 유효 능력치 ----
+  // 무장의 유효 능력치 = 기본치 + 해당 삼혼 수련 보너스(상한 100)
+  function effStat(g, key) {
+    if (!g) return 0;
+    var base = g[key] || 0;
+    var bonus = 0;
+    if (g.spirit) {
+      if (key === 'command') bonus = Math.floor((g.spirit.command || 0) / 2);
+      else if (key === 'force') bonus = Math.floor((g.spirit.martial || 0) / 2);
+      else if (key === 'intellect' || key === 'politics') bonus = Math.floor((g.spirit.mind || 0) / 2);
+    }
+    return Math.min(100, base + bonus);
+  }
+
+  // 수련: 금을 들여 특정 삼혼을 단련한다 (통솔혼/무혼/지혼)
+  function trainGeneral(generalId, spiritKind) {
+    var g = generalById(generalId);
+    if (!g) return;
+    if (g.kingdom !== state.playerKingdom) { toast('아군 무장만 수련시킬 수 있습니다.'); notify(); return; }
+    var cost = 250;
+    if (state.gold[state.playerKingdom] < cost) { toast('금이 부족합니다.'); notify(); return; }
+    state.gold[state.playerKingdom] -= cost;
+    if (!g.spirit) g.spirit = { command: 0, martial: 0, mind: 0 };
+    var gain = 4 + Math.floor(Math.random() * 4); // 4~7
+    g.spirit[spiritKind] = Math.min(100, (g.spirit[spiritKind] || 0) + gain);
+    var label = { command: '통솔혼', martial: '무혼', mind: '지혼' }[spiritKind] || spiritKind;
+    toast(g.name + '의 ' + label + '이(가) +' + gain + ' 단련되었다.');
+    pushLog(g.name + '이(가) 수련하여 ' + label + '을(를) 갈고닦았다.');
+    notify();
+  }
+
+  // ---- 일기토(一騎討, 무장 대결) ----
+  // 두 무장이 무력/무혼을 겨루는 턴제 대결. 승리 시 사기/충성 보정.
+  function startDuel(challengerId, opponentId) {
+    var a = generalById(challengerId);
+    var d = generalById(opponentId);
+    if (!a || !d) return;
+    state.duel = {
+      aId: challengerId,
+      dId: opponentId,
+      aHp: 100,
+      dHp: 100,
+      round: 1,
+      over: false,
+      result: null, // 'win' | 'lose'
+      log: ['일기토 개시! ' + a.name + ' 대 ' + d.name]
+    };
+    state.overlay = 'duel';
+    notify();
+  }
+
+  function duelPower(g) {
+    // 무력 위주 + 통솔 약간 반영
+    return effStat(g, 'force') * 0.75 + effStat(g, 'command') * 0.25;
+  }
+
+  function duelAction(action) {
+    var b = state.duel;
+    if (!b || b.over) return;
+    var a = generalById(b.aId);
+    var d = generalById(b.dId);
+    var rand = function () { return 0.8 + Math.random() * 0.4; };
+
+    if (action === 'yield') {
+      b.over = true; b.result = 'lose';
+      b.log.unshift(a.name + '이(가) 물러섰다. 일기토 패배.');
+      applyDuelResult();
+      notify();
+      return;
+    }
+
+    // action: 'strike'(맹공) | 'guard'(신중) | 'feint'(허허실실)
+    var aAtkMult = action === 'strike' ? 1.35 : (action === 'feint' ? 1.1 : 0.8);
+    var aDefMult = action === 'guard' ? 0.6 : (action === 'feint' ? 0.85 : 1.0);
+
+    var aPow = duelPower(a), dPow = duelPower(d);
+    // AI 상대는 무작위 행동
+    var dChoice = Math.random();
+    var dAtkMult = dChoice < 0.5 ? 1.35 : (dChoice < 0.75 ? 1.1 : 0.8);
+
+    var dmgToD = Math.round((aPow / 6) * aAtkMult * rand());
+    var dmgToA = Math.round((dPow / 6) * dAtkMult * aDefMult * rand());
+
+    b.dHp = Math.max(0, b.dHp - dmgToD);
+    b.aHp = Math.max(0, b.aHp - dmgToA);
+
+    var actName = { strike: '맹공', guard: '신중', feint: '허허실실' }[action] || action;
+    b.log.unshift('제' + b.round + '합 [' + actName + '] · ' + d.name + ' -' + dmgToD + ', ' + a.name + ' -' + dmgToA);
+    b.round++;
+
+    if (b.dHp <= 0 && b.aHp <= 0) {
+      b.over = true; b.result = b.aHp >= b.dHp ? 'win' : 'lose';
+      b.log.unshift('양측 모두 쓰러졌다!');
+      applyDuelResult();
+    } else if (b.dHp <= 0) {
+      b.over = true; b.result = 'win';
+      b.log.unshift(d.name + '이(가) 쓰러졌다! ' + a.name + '의 승리.');
+      applyDuelResult();
+    } else if (b.aHp <= 0) {
+      b.over = true; b.result = 'lose';
+      b.log.unshift(a.name + '이(가) 쓰러졌다. 일기토 패배.');
+      applyDuelResult();
+    } else if (b.round > 9) {
+      b.over = true; b.result = b.aHp >= b.dHp ? 'win' : 'lose';
+      b.log.unshift('승부가 나지 않아 물러섰다.');
+      applyDuelResult();
+    }
+    notify();
+  }
+
+  function applyDuelResult() {
+    var b = state.duel;
+    var a = generalById(b.aId);
+    var d = generalById(b.dId);
+    if (!a || !d) return;
+    if (b.result === 'win') {
+      // 승리한 아군 무장: 무혼 단련 + 충성 상승
+      if (a.kingdom === state.playerKingdom) {
+        if (!a.spirit) a.spirit = { command: 0, martial: 0, mind: 0 };
+        a.spirit.martial = Math.min(100, a.spirit.martial + 3);
+        a.loyalty = Math.min(100, a.loyalty + 3);
+      }
+      // 패한 상대 무장의 충성 하락(등용 기반)
+      d.loyalty = Math.max(0, d.loyalty - 8);
+      pushLog(a.name + '이(가) 일기토에서 ' + d.name + '을(를) 꺾었다.');
+    } else {
+      if (a.kingdom === state.playerKingdom) a.loyalty = Math.max(0, a.loyalty - 2);
+      pushLog(a.name + '이(가) 일기토에서 ' + d.name + '에게 패했다.');
+    }
+  }
+
+  // 진행중인 전투(legion)에서 양 장수의 일기토를 벌인다.
+  function startDuelFromBattle() {
+    var b = state.battle;
+    if (!b || b.over || !b.atkGen || !b.defGen) return;
+    b.duelPending = true; // 전투 복귀 표시
+    startDuel(b.atkGen, b.defGen);
+  }
+
+  function endDuel() {
+    var b = state.battle;
+    var d = state.duel;
+    // 전투 중 일기토였다면 결과를 전투에 반영하고 전투로 복귀
+    if (b && d && b.duelPending) {
+      b.duelPending = false;
+      if (d.result === 'win') {
+        // 승리: 적 수비군 사기 저하(병력 -12%), 아군 사기 상승 로그
+        var cut = Math.round(b.defTroops * 0.12);
+        b.defTroops = Math.max(0, b.defTroops - cut);
+        b.log.unshift('일기토 승리! 적 수비군의 사기가 떨어져 병력이 ' + cut + ' 이탈했다.');
+      } else if (d.result === 'lose') {
+        var cutA = Math.round(b.atkTroops * 0.10);
+        b.atkTroops = Math.max(0, b.atkTroops - cutA);
+        b.log.unshift('일기토 패배로 아군의 사기가 흔들려 병력이 ' + cutA + ' 이탈했다.');
+        if (b.atkTroops <= 0) {
+          b.over = true; b.result = 'lose';
+          b.log.unshift('아군이 무너졌다. 공격 실패.');
+          applyBattleResult();
+        }
+      }
+      state.duel = null;
+      state.overlay = 'battle';
+      notify();
+      return;
+    }
+    state.duel = null;
+    state.overlay = null;
+    notify();
+  }
+
+  // ---- 설전(舌戰, 논쟁) ----
+  // 지력/정치·지혼을 겨루는 턴제 논쟁. 승리 시 상대 무장 충성 하락(등용에 유리).
+  function startDebate(challengerId, opponentId) {
+    var a = generalById(challengerId);
+    var d = generalById(opponentId);
+    if (!a || !d) return;
+    state.debate = {
+      aId: challengerId,
+      dId: opponentId,
+      aResolve: 100,
+      dResolve: 100,
+      round: 1,
+      over: false,
+      result: null,
+      log: ['설전 개시! ' + a.name + ' 대 ' + d.name]
+    };
+    state.overlay = 'debate';
+    notify();
+  }
+
+  function debatePower(g) {
+    return effStat(g, 'intellect') * 0.6 + effStat(g, 'politics') * 0.4;
+  }
+
+  function debateAction(action) {
+    var b = state.debate;
+    if (!b || b.over) return;
+    var a = generalById(b.aId);
+    var d = generalById(b.dId);
+    var rand = function () { return 0.8 + Math.random() * 0.4; };
+
+    if (action === 'concede') {
+      b.over = true; b.result = 'lose';
+      b.log.unshift(a.name + '이(가) 말문이 막혔다. 설전 패배.');
+      applyDebateResult();
+      notify();
+      return;
+    }
+
+    // action: 'logic'(정론) | 'rhetoric'(달변) | 'probe'(반문)
+    var aAtkMult = action === 'logic' ? 1.3 : (action === 'rhetoric' ? 1.15 : 0.85);
+    var aDefMult = action === 'probe' ? 0.65 : 1.0;
+
+    var aPow = debatePower(a), dPow = debatePower(d);
+    var dChoice = Math.random();
+    var dAtkMult = dChoice < 0.5 ? 1.3 : (dChoice < 0.75 ? 1.15 : 0.85);
+
+    var dmgToD = Math.round((aPow / 6) * aAtkMult * rand());
+    var dmgToA = Math.round((dPow / 6) * dAtkMult * aDefMult * rand());
+
+    b.dResolve = Math.max(0, b.dResolve - dmgToD);
+    b.aResolve = Math.max(0, b.aResolve - dmgToA);
+
+    var actName = { logic: '정론', rhetoric: '달변', probe: '반문' }[action] || action;
+    b.log.unshift('제' + b.round + '합 [' + actName + '] · ' + d.name + ' -' + dmgToD + ', ' + a.name + ' -' + dmgToA);
+    b.round++;
+
+    if (b.dResolve <= 0 && b.aResolve <= 0) {
+      b.over = true; b.result = b.aResolve >= b.dResolve ? 'win' : 'lose';
+      b.log.unshift('설전이 무승부로 끝났다.');
+      applyDebateResult();
+    } else if (b.dResolve <= 0) {
+      b.over = true; b.result = 'win';
+      b.log.unshift(d.name + '이(가) 할 말을 잃었다! ' + a.name + '의 승리.');
+      applyDebateResult();
+    } else if (b.aResolve <= 0) {
+      b.over = true; b.result = 'lose';
+      b.log.unshift(a.name + '이(가) 논파당했다. 설전 패배.');
+      applyDebateResult();
+    } else if (b.round > 9) {
+      b.over = true; b.result = b.aResolve >= b.dResolve ? 'win' : 'lose';
+      b.log.unshift('설전이 길어져 마무리되었다.');
+      applyDebateResult();
+    }
+    notify();
+  }
+
+  function applyDebateResult() {
+    var b = state.debate;
+    var a = generalById(b.aId);
+    var d = generalById(b.dId);
+    if (!a || !d) return;
+    if (b.result === 'win') {
+      if (a.kingdom === state.playerKingdom) {
+        if (!a.spirit) a.spirit = { command: 0, martial: 0, mind: 0 };
+        a.spirit.mind = Math.min(100, a.spirit.mind + 3);
+      }
+      // 설전 승리는 상대의 마음을 흔들어 등용에 크게 유리
+      d.loyalty = Math.max(0, d.loyalty - 12);
+      pushLog(a.name + '이(가) 설전에서 ' + d.name + '을(를) 논파했다.');
+    } else {
+      pushLog(a.name + '이(가) 설전에서 ' + d.name + '에게 밀렸다.');
+    }
+  }
+
+  function endDebate() {
+    state.debate = null;
+    state.overlay = null;
+    notify();
+  }
+
+  // ---- 등용(登用) / 의형제(義兄弟) ----
+  // 등용 가능한 무장: 재야(free) 무장, 또는 충성이 낮은 타국 무장
+  function recruitableGenerals() {
+    return state.generals.filter(function (g) {
+      if (g.kingdom === state.playerKingdom) return false;
+      if (g.free) return true;               // 재야는 항상 등용 후보
+      return g.loyalty <= 45;                // 충성이 흔들리는 타국 무장
+    });
+  }
+
+  function openRecruit(generalId) {
+    state.recruitTargetId = generalId || null;
+    state.overlay = 'recruit';
+    notify();
+  }
+
+  // 등용 성공 확률: (100 - 충성)% 기반 + 재야 보정 + 금 투자 보정
+  function recruitChance(g) {
+    if (!g) return 0;
+    var base = (100 - (g.loyalty || 0)); // 충성 낮을수록 유리
+    if (g.free) base += 20;
+    return Math.max(5, Math.min(95, base));
+  }
+
+  function recruitTarget(generalId) {
+    var g = generalById(generalId);
+    if (!g) return;
+    if (g.kingdom === state.playerKingdom) { toast('이미 아군 무장입니다.'); notify(); return; }
+    var cost = g.free ? 800 : 1500; // 타국 무장 회유가 더 비싸다
+    if (state.gold[state.playerKingdom] < cost) { toast('금이 부족합니다.'); notify(); return; }
+    state.gold[state.playerKingdom] -= cost;
+    var chance = recruitChance(g);
+    if (Math.random() * 100 < chance) {
+      // 등용 성공: 아군으로 편입, 왕경(수도) 성에 배치
+      var wasFree = g.free;
+      g.kingdom = state.playerKingdom;
+      g.free = false;
+      g.loyalty = Math.max(60, g.loyalty);
+      // 아무 성에도 없으면 아군 최대 병력 성에 배치
+      var placed = state.cities.some(function (c) { return c.generals.indexOf(g.id) >= 0; });
+      if (!placed) {
+        var mine = citiesOf(state.playerKingdom);
+        if (mine.length) {
+          mine.sort(function (a, b) { return b.troops - a.troops; });
+          mine[0].generals.push(g.id);
+        }
+      }
+      toast(g.name + '을(를) 등용했습니다!');
+      pushLog(S.KINGDOMS[state.playerKingdom].name + '이 ' + (wasFree ? '재야의 ' : '') + g.name + '을(를) 등용했다.');
+    } else {
+      g.loyalty = Math.min(100, g.loyalty + 5); // 실패 시 상대 결속 강화
+      toast(g.name + '이(가) 등용을 거절했습니다.');
+    }
+    state.recruitTargetId = null;
+    notify();
+  }
+
+  // 의형제 결의: 아군 무장 둘을 맺어 서로 충성/사기를 높인다 (도원결의 오마주)
+  function swornOath(idA, idB) {
+    var a = generalById(idA);
+    var b = generalById(idB);
+    if (!a || !b || a.id === b.id) { toast('서로 다른 두 무장을 골라야 합니다.'); notify(); return; }
+    if (a.kingdom !== state.playerKingdom || b.kingdom !== state.playerKingdom) {
+      toast('아군 무장끼리만 의형제를 맺을 수 있습니다.'); notify(); return;
+    }
+    var cost = 500;
+    if (state.gold[state.playerKingdom] < cost) { toast('금이 부족합니다.'); notify(); return; }
+    if (a.sworn.indexOf(b.id) >= 0) { toast('이미 의형제입니다.'); notify(); return; }
+    state.gold[state.playerKingdom] -= cost;
+    a.sworn.push(b.id);
+    b.sworn.push(a.id);
+    a.loyalty = Math.min(100, a.loyalty + 8);
+    b.loyalty = Math.min(100, b.loyalty + 8);
+    toast(a.name + '와(과) ' + b.name + '이(가) 의형제를 맺었습니다!');
+    pushLog(a.name + '와(과) ' + b.name + '이(가) 의형제의 결의를 맺어 생사를 함께하기로 했다.');
     notify();
   }
 
@@ -503,6 +905,96 @@
     }
   }
 
+  // ---- 재해(災害) 시스템 ----
+  // 레퍼런스의 6종 재해(지진/홍수/가뭄/황충/역병/폭설)를 한반도 배경으로 구현.
+  var DISASTERS = [
+    { id: 'quake', name: '지진', apply: function (c) { c.defense = Math.max(20, c.defense - 12); c.population = Math.round(c.population * 0.96); }, desc: '성벽이 무너지고 백성이 다쳤다. (치안 -12)' },
+    { id: 'flood', name: '홍수', apply: function (c) { c.agriculture = Math.max(15, c.agriculture - 12); }, desc: '강이 범람하여 논밭이 잠겼다. (농업 -12)' },
+    { id: 'drought', name: '가뭄', apply: function (c) { c.agriculture = Math.max(15, c.agriculture - 10); c.commerce = Math.max(15, c.commerce - 4); }, desc: '오랜 가뭄으로 곡식이 말랐다. (농업 -10, 상업 -4)' },
+    { id: 'locust', name: '황충', apply: function (c) { c.agriculture = Math.max(15, c.agriculture - 14); }, desc: '메뚜기 떼가 들판을 덮쳤다. (농업 -14)' },
+    { id: 'plague', name: '역병', apply: function (c) { c.troops = Math.round(c.troops * 0.85); c.population = Math.round(c.population * 0.94); }, desc: '역병이 돌아 병사와 백성이 스러졌다. (병력 -15%)' },
+    { id: 'snow', name: '폭설', apply: function (c) { c.commerce = Math.max(15, c.commerce - 12); c.troops = Math.round(c.troops * 0.95); }, desc: '기록적인 폭설로 교역이 끊겼다. (상업 -12, 병력 -5%)' }
+  ];
+
+  function checkDisasters() {
+    // 매 턴 12% 확률로 재해 발생, 무작위 도시 1곳 강타
+    if (Math.random() >= 0.12) return null;
+    var targets = state.cities.filter(function (c) { return c.kingdom !== 'neutral'; });
+    if (!targets.length) return null;
+    var city = targets[Math.floor(Math.random() * targets.length)];
+    var d = DISASTERS[Math.floor(Math.random() * DISASTERS.length)];
+    d.apply(city);
+    var text = city.name + '에 ' + d.name + '! ' + d.desc;
+    pushLog('[재해] ' + text);
+    return {
+      isPlayer: city.kingdom === state.playerKingdom,
+      name: d.name, cityName: city.name, desc: d.desc,
+      kingdomName: city.kingdom === 'neutral' ? '중립' : S.KINGDOMS[city.kingdom].name
+    };
+  }
+
+  // ---- 합종연횡(合從連衡): 최강 세력을 견제하는 동맹 ----
+  // 최강국이 뚜렷하면 나머지 AI 세력이 합종(연합)하여 견제하고,
+  // 최강국은 연횡으로 맞선다(관계 개선 시도). 플레이어가 최강이면 포위될 수 있다.
+  function checkAlliances() {
+    var alive = S.KINGDOM_ORDER.filter(function (k) { return citiesOf(k).length > 0; });
+    if (alive.length < 3) return null;
+    // 국력 = 총병력 + 성 수 가중
+    function power(k) { return kingdomTroops(k) + citiesOf(k).length * 5000; }
+    alive.sort(function (a, b) { return power(b) - power(a); });
+    var top = alive[0];
+    var second = alive[1];
+    // 최강국이 2위보다 30% 이상 강할 때만 합종 발동
+    if (power(top) < power(second) * 1.3) return null;
+    // 합종은 6턴 쿨다운(매 턴 보고가 반복되지 않도록)
+    if (state._allianceCooldown && state.turn < state._allianceCooldown) return null;
+    // 25% 확률로만 국면 전환
+    if (Math.random() >= 0.25) return null;
+    state._allianceCooldown = state.turn + 6;
+
+    var others = alive.filter(function (k) { return k !== top; });
+    // 합종: 나머지 세력끼리 관계 개선 + 최강국에 대한 적대 상승
+    others.forEach(function (a) {
+      others.forEach(function (b) {
+        if (a !== b) {
+          state.diplomacy[a][b].relation = Math.min(100, state.diplomacy[a][b].relation + 8);
+        }
+      });
+      // 최강국을 향한 적대
+      state.diplomacy[a][top].relation = Math.max(-100, state.diplomacy[a][top].relation - 12);
+      state.diplomacy[top][a].relation = state.diplomacy[a][top].relation;
+    });
+
+    var topName = S.KINGDOMS[top].name;
+    var msg = topName + '의 독주를 견제하기 위해 나머지 세력이 합종(合從)을 도모한다!';
+    pushLog('[합종연횡] ' + msg);
+    return {
+      isPlayerTop: top === state.playerKingdom,
+      topName: topName,
+      othersNames: others.map(function (k) { return S.KINGDOMS[k].name; }).join(' · '),
+      msg: msg
+    };
+  }
+
+  // ---- 무장 이탈(반란/사직): 충성이 매우 낮으면 재야로 이탈 ----
+  function checkDefections() {
+    state.generals.forEach(function (g) {
+      if (g.free || g.kingdom === 'neutral') return;
+      if (g.kingdom === state.playerKingdom) return; // 플레이어 무장은 별도(사기 유지) — 이탈 제외
+      if (g.loyalty <= 15 && Math.random() < 0.3) {
+        // 소속에서 제거하고 재야로
+        state.cities.forEach(function (c) {
+          var idx = c.generals.indexOf(g.id);
+          if (idx >= 0) c.generals.splice(idx, 1);
+        });
+        var old = g.kingdom;
+        g.kingdom = 'free';
+        g.free = true;
+        pushLog('[이탈] ' + S.KINGDOMS[old].name + '의 ' + g.name + '이(가) 불만을 품고 재야로 떠났다.');
+      }
+    });
+  }
+
   // ---- 턴 진행 ----
   function nextTurn() {
     // 플레이어 수입
@@ -520,12 +1012,32 @@
     state.year += 1;
     state.selectedCityId = null;
 
+    // 동적 세계: 합종연횡 → 재해 → 무장 이탈
+    var alliance = checkAlliances();
+    var disaster = checkDisasters();
+    checkDefections();
+
+    // 턴 결과 보고(재해/합종)를 팝업으로 모아 표시 (이벤트가 없을 때만; 이벤트 우선)
+    var reportLines = [];
+    if (alliance) reportLines.push({ title: '합종연횡 · ' + alliance.topName + ' 견제', text: alliance.msg + (alliance.isPlayerTop ? ' 그대가 표적이 되었다!' : '') });
+    if (disaster) reportLines.push({ title: '재해 · ' + disaster.name + ' (' + disaster.cityName + ')', text: disaster.kingdomName + '의 ' + disaster.cityName + ' — ' + disaster.desc });
+
     // 이벤트 체크
-    checkAndTriggerEvent();
+    var firedEvent = checkAndTriggerEvent();
+
+    // 이벤트가 없고 보고할 내용이 있으면 보고 팝업 준비
+    if (!firedEvent && reportLines.length) {
+      state.pendingReport = { lines: reportLines };
+    }
 
     // 승패 판정
     checkEndConditions();
 
+    notify();
+  }
+
+  function dismissReport() {
+    state.pendingReport = null;
     notify();
   }
 
@@ -574,6 +1086,8 @@
     // 액션
     newGame: newGame,
     goTitle: goTitle,
+    scenarioById: scenarioById,
+    selectScenario: selectScenario,
     selectKingdom: selectKingdom,
     selectCity: selectCity,
     openOverlay: openOverlay,
@@ -587,7 +1101,22 @@
     startBattle: startBattle,
     battleAction: battleAction,
     endBattle: endBattle,
+    effStat: effStat,
+    trainGeneral: trainGeneral,
+    startDuel: startDuel,
+    startDuelFromBattle: startDuelFromBattle,
+    duelAction: duelAction,
+    endDuel: endDuel,
+    startDebate: startDebate,
+    debateAction: debateAction,
+    endDebate: endDebate,
+    recruitableGenerals: recruitableGenerals,
+    openRecruit: openRecruit,
+    recruitChance: recruitChance,
+    recruitTarget: recruitTarget,
+    swornOath: swornOath,
     dismissEvent: dismissEvent,
+    dismissReport: dismissReport,
     nextTurn: nextTurn
   };
 

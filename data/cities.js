@@ -55,7 +55,26 @@
       troops: 3000, generals: [] },
     { id: 'dangph', name: '당항성', kingdom: 'neutral', province: '남양만',
       x: 150, y: 335, population: 45000, agriculture: 48, commerce: 55, defense: 42,
-      troops: 3200, generals: [] }
+      troops: 3200, generals: [] },
+
+    // ===== 당나라 (대륙 서북방) =====
+    { id: 'changan', name: '장안', kingdom: 'tang', province: '관중',
+      x: 60, y: 90, population: 200000, agriculture: 70, commerce: 85, defense: 82,
+      troops: 16000, generals: ['taizong', 'ijeok'] },
+    { id: 'luoyang', name: '낙양', kingdom: 'tang', province: '중원',
+      x: 110, y: 150, population: 160000, agriculture: 68, commerce: 80, defense: 72,
+      troops: 13000, generals: ['sujeongbang'] },
+    { id: 'ansi', name: '안시', kingdom: 'tang', province: '요서 전선',
+      x: 90, y: 235, population: 70000, agriculture: 50, commerce: 48, defense: 78,
+      troops: 10000, generals: ['seolingwi'] },
+
+    // ===== 왜 (동남 해상 열도) =====
+    { id: 'asuka', name: '아스카', kingdom: 'wa', province: '야마토',
+      x: 560, y: 470, population: 90000, agriculture: 58, commerce: 60, defense: 60,
+      troops: 8000, generals: ['waking'] },
+    { id: 'naniwa', name: '나니와', kingdom: 'wa', province: '해안',
+      x: 500, y: 420, population: 70000, agriculture: 52, commerce: 66, defense: 55,
+      troops: 7000, generals: ['abenohirafu', 'echinotakutsu'] }
   ];
 
   global.SAMGUK = global.SAMGUK || {};
