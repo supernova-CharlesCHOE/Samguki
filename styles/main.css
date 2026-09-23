@@ -184,6 +184,8 @@ body {
 .city-label { font-size: 11px; fill: var(--parchment); paint-order: stroke; stroke: #000; stroke-width: 3px; font-weight: bold; }
 .city-label.player { fill: var(--gold-light); }
 .city-troops { font-size: 9px; fill: #cdbf9c; paint-order: stroke; stroke: #000; stroke-width: 2.5px; }
+.map-region-label { font-size: 22px; fill: #6b7a4a; opacity: 0.5; letter-spacing: 4px; font-weight: bold; }
+.map-region-sub { font-size: 11px; fill: #6b7a4a; opacity: 0.45; letter-spacing: 3px; }
 .pulse { animation: pulseRing 1.2s infinite; }
 .city-marker:hover circle:first-child { filter: brightness(1.3); }
 

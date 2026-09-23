@@ -85,6 +85,25 @@
         '<path d="M35 70 Q45 55 45 40 Q45 28 55 26 L62 22" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round"/>' +
         '<path d="M35 70 Q55 62 72 66" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round"/>' +
         '<circle cx="62" cy="22" r="3" fill="#fff"/><circle cx="56" cy="26" r="2.5" fill="#8b1a1a"/>';
+    } else if (type === 'dragon') {
+      // 용: 굽이치는 몸통의 동양 용 (당나라)
+      content =
+        '<circle cx="50" cy="50" r="44" fill="' + color + '" stroke="#f5e6c8" stroke-width="3"/>' +
+        '<path d="M26 66 Q34 48 46 54 Q58 60 60 46 Q62 32 74 34" stroke="#f5e6c8" stroke-width="5" fill="none" stroke-linecap="round"/>' +
+        '<path d="M74 34 L82 28 M74 34 L80 42" stroke="#f5e6c8" stroke-width="4" fill="none" stroke-linecap="round"/>' +
+        '<circle cx="72" cy="35" r="2.5" fill="#8b1a1a"/>' +
+        '<path d="M30 70 L26 66 L32 64 M40 60 L36 56" stroke="#f5e6c8" stroke-width="3" fill="none" stroke-linecap="round"/>';
+    } else if (type === 'wave') {
+      // 파도 위 떠오르는 해 (왜)
+      content =
+        '<circle cx="50" cy="50" r="44" fill="' + color + '" stroke="#f5e6c8" stroke-width="3"/>' +
+        '<circle cx="50" cy="42" r="14" fill="#f5e6c8"/>' +
+        '<path d="M22 62 Q32 54 42 62 T62 62 T82 62" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>' +
+        '<path d="M24 72 Q34 64 44 72 T64 72 T84 72" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>';
+    } else {
+      // 알 수 없는 유형: 빈 SVG 대신 기본 원형 방패 반환
+      content =
+        '<circle cx="50" cy="50" r="44" fill="' + (color || '#5a5346') + '" stroke="#f5e6c8" stroke-width="3"/>';
     }
     wrap.innerHTML = content;
     return wrap;
