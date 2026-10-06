@@ -45,6 +45,7 @@
     if (state.phase === 'title') content = S.Screens.title(state);
     else if (state.phase === 'scenario-select') content = S.Screens['scenario-select'](state);
     else if (state.phase === 'kingdom-select') content = S.Screens['kingdom-select'](state);
+    else if (state.phase === 'mode-select') content = S.Screens['mode-select'](state);
     else if (state.phase === 'game') content = S.Game.renderGame(state);
     else if (state.phase === 'victory' || state.phase === 'defeat') content = renderEnd(state);
     else content = S.Screens.title(state);

@@ -583,6 +583,97 @@
     ]);
   }
 
+  // ============ 장수제 근무/명령 ============
+  function officer(state) {
+    var g = store.generalById(state.playerGeneralId);
+    if (!g) return el('div.overlay-panel', null, [head('근무'), el('p', { text: '무장 정보가 없습니다.' })]);
+    var rank = store.currentRank();
+    var nr = store.nextRank();
+    var c = store.officerCity();
+    var acted = state.actedThisTurn;
+    var k = K(state.playerKingdom);
+
+    // 공훈 진행 막대
+    var prevMerit = rank.merit;
+    var meritPct = nr ? Math.max(0, Math.min(100, ((state.merit - prevMerit) / (nr.merit - prevMerit)) * 100)) : 100;
+
+    function cmd(label, hint, onClick, disabled) {
+      return el('div.affair-cmd', null, [
+        el('div.affair-cmd-info', null, [
+          el('div.affair-cmd-name', { text: label }),
+          el('div.affair-cmd-hint', { text: hint })
+        ]),
+        el('button.btn.btn-primary', { text: acted ? '근무완료' : '수행', disabled: disabled || acted, onClick: onClick })
+      ]);
+    }
+
+    // 삼혼 훈련 버튼
+    function trainBtn(kind, label) {
+      return el('button.btn.officer-train-btn', {
+        disabled: acted,
+        onClick: function () { store.officerTrainSelf(kind); }
+      }, [el('span', { text: label }), el('span.spirit-val', { text: String((g.spirit && g.spirit[kind]) || 0) })]);
+    }
+
+    var canGovern = rank.canGovern;
+    var canIndep = rank.canIndependent;
+
+    return el('div.overlay-panel.officer-panel', { style: { '--kcolor': k.color } }, [
+      head('근무 · ' + g.name + ' (' + rank.name + ')'),
+      el('div.officer-body', null, [
+        // 신상 요약
+        el('div.officer-summary', null, [
+          el('div.res-chip', null, [el('span.res-k', { text: '관직' }), el('span.res-v', { text: rank.name })]),
+          el('div.res-chip', null, [el('span.res-k', { text: '공훈' }), el('span.res-v', { text: String(state.merit) })]),
+          el('div.res-chip', null, [el('span.res-k', { text: '봉록/턴' }), el('span.res-v', { text: '+' + rank.stipend })]),
+          el('div.res-chip', null, [el('span.res-k', { text: '재산' }), el('span.res-v', { text: state.personalGold.toLocaleString() })])
+        ]),
+        // 승진 진행
+        el('div.officer-promo', null, [
+          el('div.officer-promo-label', { text: nr ? ('다음 관직: ' + nr.name + ' (공훈 ' + nr.merit + ')') : '최고 관직에 올랐습니다.' }),
+          el('div.stat-track', null, [el('div.stat-fill', { style: { width: meritPct + '%', background: '#c9a227' } })])
+        ]),
+        // 능력치
+        el('div.officer-stats', null, [
+          UI.statBar('통솔', store.effStat(g, 'command'), '#c0392b'),
+          UI.statBar('무력', store.effStat(g, 'force'), '#e67e22'),
+          UI.statBar('지력', store.effStat(g, 'intellect'), '#2980b9'),
+          UI.statBar('정치', store.effStat(g, 'politics'), '#27ae60')
+        ]),
+        acted ? el('div.officer-acted-note', { text: '이번 턴 근무를 마쳤습니다. 턴을 종료하면 봉록을 받고 다시 근무할 수 있습니다.' }) : null,
+        // 근무 명령
+        el('div.internal-section-title', { text: '근무 (턴당 1회)' }),
+        el('div.internal-cmds', null, [
+          cmd('내정 근무', (c ? c.name : '성') + ' 농업 개발 · 공훈·금·지혼', function () { store.officerAdminService('agriculture'); }),
+          cmd('상업 근무', (c ? c.name : '성') + ' 상업 진흥 · 공훈·금·지혼', function () { store.officerAdminService('commerce'); }),
+          cmd('치안 근무', (c ? c.name : '성') + ' 치안·민심 · 공훈·금', function () { store.officerAdminService('defense'); }),
+          cmd('임무 수행', '순찰·토벌로 공훈과 재산 획득 (성패 있음)', function () { store.officerMission(); }),
+          cmd('출전', '전선으로 출전하여 전투를 지휘 (큰 공훈)', function () { store.officerSortie(); })
+        ]),
+        // 자기 수련
+        el('div.internal-section-title', { text: '수련 (삼혼 단련, 턴당 1회)' }),
+        el('div.officer-train-row', null, [
+          trainBtn('command', '통솔혼'),
+          trainBtn('martial', '무혼'),
+          trainBtn('mind', '지혼')
+        ]),
+        // 출세 (고위직)
+        el('div.internal-section-title', { text: '출세' }),
+        el('div.officer-advance', null, [
+          el('div.officer-advance-note', {
+            text: canGovern ? '장군 이상: 지도에서 아군 성을 골라 태수로 부임할 수 있습니다.' : '장군이 되면 성을 다스릴 수 있습니다.'
+          }),
+          el('button.btn.btn-danger', {
+            text: '실권 장악(군주 승계)',
+            disabled: !canIndep,
+            onClick: function () { store.officerDeclareIndependence(); }
+          }),
+          el('div.officer-advance-note', { text: canIndep ? '태수 이상: 세력의 실권을 장악해 직접 군주가 됩니다.' : '태수 이상이 되면 실권을 장악할 수 있습니다.' })
+        ])
+      ])
+    ]);
+  }
+
   global.SAMGUK.Overlays = {
     internal: internal,
     diplomacy: diplomacy,
@@ -590,6 +681,7 @@
     battle: battle,
     duel: duel,
     debate: debate,
-    recruit: recruit
+    recruit: recruit,
+    officer: officer
   };
 })(window);

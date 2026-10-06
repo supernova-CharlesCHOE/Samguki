@@ -114,6 +114,73 @@
     ]);
   }
 
+  // ============ 플레이 방식 선택 (군주제 / 장수제) ============
+  Screens['mode-select'] = function (state) {
+    var kingdom = state.playerKingdom;
+    var k = K(kingdom);
+    var live = store.getState();
+    // 그 세력의 무장 목록 (장수제 선택지)
+    var factionGenerals = live.generals.filter(function (g) { return g.kingdom === kingdom; });
+    var rulerId = S.RULERS[kingdom];
+
+    // 군주제 카드
+    var rulerCard = el('div.mode-card.ruler-mode', {
+      style: { '--kcolor': k.color, '--kcolor-light': k.colorLight },
+      onClick: function () { store.startAsRuler(); }
+    }, [
+      el('div.mode-icon', { text: '👑' }),
+      el('h3.mode-name', { text: '군주제' }),
+      el('div.mode-sub', { text: k.name + '의 군주로서' }),
+      el('p.mode-desc', { text: '세력 전체를 직접 통치합니다. 내정·외교·군사를 모두 지휘하여 천하를 통일하세요.' }),
+      el('button.btn.btn-primary.mode-btn', { text: '군주로 시작' })
+    ]);
+
+    // 장수제 카드 (무장 선택 포함)
+    var selectedGenId = { id: rulerId }; // 클로저로 선택 상태 보관
+    var genButtons = factionGenerals.map(function (g) {
+      return el('button.btn.officer-pick' + (g.id === selectedGenId.id ? '.active' : ''), {
+        'data-gid': g.id,
+        onClick: function (e) {
+          selectedGenId.id = g.id;
+          // 활성 표시 토글
+          var wrap = e.target.closest ? e.target.closest('.officer-picks') : null;
+          if (wrap) Array.prototype.forEach.call(wrap.querySelectorAll('.officer-pick'), function (b) {
+            b.classList.remove('active');
+          });
+          (e.currentTarget || e.target).classList.add('active');
+        }
+      }, [
+        el('span.officer-pick-name', { text: g.name }),
+        el('span.officer-pick-stat', { text: '통' + g.command + '무' + g.force + '지' + g.intellect + '정' + g.politics })
+      ]);
+    });
+
+    var officerCard = el('div.mode-card.officer-mode', {
+      style: { '--kcolor': k.color, '--kcolor-light': k.colorLight }
+    }, [
+      el('div.mode-icon', { text: '⚔' }),
+      el('h3.mode-name', { text: '장수제' }),
+      el('div.mode-sub', { text: k.name + '의 한 무장으로서' }),
+      el('p.mode-desc', { text: '한 무장이 되어 근무·훈련·임무·출전으로 공훈을 쌓아 승진합니다. 태수를 거쳐 실권을 장악하면 직접 군주가 될 수도 있습니다.' }),
+      el('div.officer-pick-label', { text: '플레이할 무장 선택' }),
+      el('div.officer-picks', null, genButtons),
+      el('button.btn.btn-primary.mode-btn', {
+        text: '장수로 시작',
+        onClick: function () { store.startAsOfficer(selectedGenId.id); }
+      })
+    ]);
+
+    return el('div.screen.select-screen.mode-screen', { style: { '--kcolor': k.color, '--kcolor-light': k.colorLight } }, [
+      el('div.ink-bg'),
+      el('div.select-inner', null, [
+        el('button.btn.btn-ghost.back-btn', { text: '← 세력 선택', onClick: function () { store.selectScenario(state.scenarioId); } }),
+        el('h2.select-title', { text: '플레이 방식을 선택하라' }),
+        el('p.scenario-intro', { text: k.name + ' (' + k.hanja + ') — 군주로 천하를 호령할 것인가, 한 무장으로 입신할 것인가?' }),
+        el('div.mode-cards', null, [rulerCard, officerCard])
+      ])
+    ]);
+  };
+
   Screens.getScreen = function (name) { return Screens[name]; };
 
   global.SAMGUK.Screens = Screens;

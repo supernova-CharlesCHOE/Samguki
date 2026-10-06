@@ -8,8 +8,37 @@
 
   function K(id) { return S.KINGDOMS[id]; }
 
+  // ============ 장수제 HUD ============
+  function renderOfficerHUD(state) {
+    var pk = state.playerKingdom;
+    var k = K(pk);
+    var g = store.generalById(state.playerGeneralId);
+    var rank = store.currentRank();
+    var nr = store.nextRank();
+    var meritToNext = nr ? (nr.merit - state.merit) : 0;
+    var cityNow = store.officerCity();
+    return el('div.hud.officer-hud', { style: { '--kcolor': k.color, '--kcolor-light': k.colorLight } }, [
+      el('div.hud-left', null, [
+        el('div.hud-emblem', null, [UI.avatar(g ? g.name : '?', k.colorLight, 40)]),
+        el('div.hud-kingdom', null, [
+          el('div.hud-kingdom-name', { text: (g ? g.name : '') + ' · ' + rank.name }),
+          el('div.hud-turn', { text: k.name + '의 신하 · ' + state.year + '년 ' + state.turn + '턴' })
+        ])
+      ]),
+      el('div.hud-stats', null, [
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '관직' }), el('span.hud-stat-val', { text: rank.name })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '공훈' }), el('span.hud-stat-val', { text: state.merit + (nr ? ' / ' + nr.merit : ' (최고위)') })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '다음 승진' }), el('span.hud-stat-val', { text: nr ? ('공훈 ' + meritToNext) : '—' })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '재산' }), el('span.hud-stat-val', { text: state.personalGold.toLocaleString() + '금' })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '근무지' }), el('span.hud-stat-val', { text: cityNow ? cityNow.name : '-' })])
+      ]),
+      el('button.btn.btn-turn', { text: (state.actedThisTurn ? '턴 종료 ▶' : '턴 종료(미근무) ▶'), onClick: function () { store.nextTurn(); } })
+    ]);
+  }
+
   // ============ HUD ============
   function renderHUD(state) {
+    if (state.playMode === 'officer') return renderOfficerHUD(state);
     var pk = state.playerKingdom;
     var k = K(pk);
     var troops = store.kingdomTroops(pk);
@@ -39,12 +68,21 @@
 
   // ============ 사이드 액션 메뉴 ============
   function renderSidePanel(state) {
-    var items = [
-      { name: '무장', overlay: 'generals', icon: '⚔' },
-      { name: '등용', overlay: 'recruit', icon: '🤝' },
-      { name: '외교', overlay: 'diplomacy', icon: '🕊' },
-      { name: '연표', overlay: 'log', icon: '📜' }
-    ];
+    var items;
+    if (state.playMode === 'officer') {
+      items = [
+        { name: '근무', overlay: 'officer', icon: '📋' },
+        { name: '무장', overlay: 'generals', icon: '⚔' },
+        { name: '연표', overlay: 'log', icon: '📜' }
+      ];
+    } else {
+      items = [
+        { name: '무장', overlay: 'generals', icon: '⚔' },
+        { name: '등용', overlay: 'recruit', icon: '🤝' },
+        { name: '외교', overlay: 'diplomacy', icon: '🕊' },
+        { name: '연표', overlay: 'log', icon: '📜' }
+      ];
+    }
     return el('div.side-panel', null, [
       el('div.side-title', { text: '명령' }),
       el('div.side-buttons', null, items.map(function (it) {
@@ -80,7 +118,17 @@
     }).filter(Boolean).join(', ') || '없음';
 
     var actions;
-    if (mine) {
+    if (state.playMode === 'officer') {
+      // 장수제: 소속 세력 성이고 장군 이상이면 태수 부임 가능
+      var faction = store.playerFaction();
+      if (c.kingdom === faction && store.currentRank().canGovern) {
+        actions = [
+          el('button.btn.btn-primary', { text: '태수 부임', onClick: function () { store.officerBecomeGovernor(c.id); } })
+        ];
+      } else {
+        actions = [el('div.city-info-note', { text: '장수제에서는 근무 명령으로 공을 세우세요.' })];
+      }
+    } else if (mine) {
       actions = [
         el('button.btn.btn-primary', { text: '내정', onClick: function () { store.openOverlay('internal'); } }),
         el('button.btn.btn-danger', { text: '출병', onClick: function () { openAttackChooser(c); } })
@@ -171,6 +219,7 @@
     else if (state.overlay === 'duel') body = S.Overlays.duel(state);
     else if (state.overlay === 'debate') body = S.Overlays.debate(state);
     else if (state.overlay === 'recruit') body = S.Overlays.recruit(state);
+    else if (state.overlay === 'officer') body = S.Overlays.officer(state);
     else if (state.overlay === 'log') body = renderFullLog(state);
     else return null;
 

@@ -531,3 +531,51 @@ body {
 
 /* 전장 유닛 사기 흔들림(낮을 때) 효과를 위한 미세 애니메이션 훅 */
 .battle-field { background: #120d06; border-radius: 6px; }
+
+/* =====================================================================
+   장수제(Officer mode): 플레이 방식 선택 · 근무 패널
+   ===================================================================== */
+
+/* 플레이 방식 선택 */
+.mode-cards { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; padding: 0 20px 30px; }
+.mode-card {
+  width: 360px; background: var(--panel-bg);
+  border: 2px solid var(--kcolor, var(--border)); border-radius: 10px;
+  padding: 26px 24px; display: flex; flex-direction: column; align-items: center; text-align: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.ruler-mode { cursor: pointer; }
+.ruler-mode:hover { transform: translateY(-6px); box-shadow: 0 12px 30px rgba(0,0,0,0.6), 0 0 22px var(--kcolor-light); }
+.mode-icon { font-size: 54px; line-height: 1; margin-bottom: 8px; }
+.mode-name { font-size: 30px; letter-spacing: 8px; color: var(--kcolor-light); }
+.mode-sub { color: var(--gold); margin: 4px 0 10px; font-size: 14px; }
+.mode-desc { font-size: 13px; line-height: 1.7; color: var(--parchment-dark); min-height: 66px; }
+.mode-btn { width: 100%; margin-top: 14px; }
+
+/* 장수제 무장 선택 */
+.officer-pick-label { font-size: 13px; color: var(--gold); margin: 10px 0 8px; letter-spacing: 2px; }
+.officer-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; max-height: 180px; overflow-y: auto; margin-bottom: 6px; }
+.officer-pick {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 6px 8px; font-size: 12px; text-align: left;
+}
+.officer-pick.active { background: linear-gradient(var(--gold), #9c7a10); color: #1a1206; border-color: var(--gold-light); font-weight: bold; }
+.officer-pick-name { font-size: 13px; }
+.officer-pick-stat { font-size: 10px; opacity: 0.85; }
+
+/* 장수제 HUD 강조 */
+.officer-hud { border-bottom-color: var(--kcolor-light, var(--gold)); }
+
+/* 장수제 근무 패널 */
+.officer-panel { width: min(820px, 94vw); border-color: var(--kcolor, var(--gold)); }
+.officer-body { padding: 16px 20px; }
+.officer-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+.officer-promo { margin-bottom: 14px; }
+.officer-promo-label { font-size: 13px; color: var(--gold-light); margin-bottom: 6px; }
+.officer-stats { margin-bottom: 10px; }
+.officer-acted-note { font-size: 12px; color: #8a7a55; background: rgba(0,0,0,0.25); border: 1px dashed var(--border); border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; }
+.officer-train-row { display: flex; gap: 8px; }
+.officer-train-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; }
+.officer-advance { display: flex; flex-direction: column; gap: 8px; }
+.officer-advance-note { font-size: 12px; color: var(--parchment-dark); }
+.city-info-note { font-size: 12px; color: #8a7a55; line-height: 1.5; }

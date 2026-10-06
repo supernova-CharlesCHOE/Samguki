@@ -9,6 +9,17 @@
   var state = null;
   var listeners = [];
 
+  // 장수제 관직 체계(공훈 임계값으로 승진). 태수 이상이면 성을 다스릴 수 있다.
+  var OFFICER_RANKS = [
+    { name: '백의종군', merit: 0,    stipend: 100, canGovern: false, canIndependent: false },
+    { name: '부장',     merit: 60,   stipend: 180, canGovern: false, canIndependent: false },
+    { name: '교위',     merit: 160,  stipend: 280, canGovern: false, canIndependent: false },
+    { name: '장군',     merit: 320,  stipend: 420, canGovern: true,  canIndependent: false },
+    { name: '태수',     merit: 560,  stipend: 600, canGovern: true,  canIndependent: true  },
+    { name: '대장군',   merit: 900,  stipend: 850, canGovern: true,  canIndependent: true  },
+    { name: '재상',     merit: 1400, stipend: 1200, canGovern: true, canIndependent: true  }
+  ];
+
   function deepCopyCities(cities) {
     return cities.map(function (c) {
       // 초기 군량/민심은 농업·치안을 바탕으로 산정 (노부나가의 야망의 兵糧/民心 개념)
@@ -91,9 +102,17 @@
 
   function createInitialState() {
     return {
-      phase: 'title',        // title | scenario-select | kingdom-select | game | victory | defeat
-      overlay: null,         // null | internal | diplomacy | battle | generals | event | duel | debate | recruit | tournament
+      phase: 'title',        // title | scenario-select | kingdom-select | mode-select | game | victory | defeat
+      overlay: null,         // null | internal | diplomacy | battle | generals | event | duel | debate | recruit | officer
+      playMode: 'ruler',     // 'ruler'(군주제) | 'officer'(장수제)
       playerKingdom: null,
+      // ── 장수제(Officer) 전용 ──
+      playerGeneralId: null, // 플레이어가 조종하는 무장 id
+      merit: 0,              // 공훈(功勳)
+      rankIndex: 0,          // 관직 등급 인덱스 (OFFICER_RANKS)
+      personalGold: 0,       // 개인 재산(금)
+      independent: false,    // 독립하여 스스로 세력을 이끄는 상태
+      actedThisTurn: false,  // 이번 턴에 근무/행동을 했는지
       scenarioId: null,      // 선택된 시나리오 id
       turn: 1,
       year: 400,
@@ -209,12 +228,195 @@
     notify();
   }
 
+  // 세력 선택 후 플레이 방식(군주제/장수제) 선택 화면으로
   function selectKingdom(kingdom) {
     state.playerKingdom = kingdom;
+    state.phase = 'mode-select';
+    notify();
+  }
+
+  // 군주제로 시작
+  function startAsRuler() {
+    state.playMode = 'ruler';
     state.phase = 'game';
     var sc = scenarioById(state.scenarioId);
+    var kingdom = state.playerKingdom;
     if (sc) pushLog('[' + sc.name + '] ' + S.KINGDOMS[kingdom].name + '의 군주가 되어 대업을 시작한다.');
     else pushLog(S.KINGDOMS[kingdom].name + '의 군주가 되어 삼국 통일의 대업을 시작한다.');
+    notify();
+  }
+
+  // 장수제로 시작: 지정한 무장으로 플레이. 그 세력은 AI 군주가 다스린다.
+  function startAsOfficer(generalId) {
+    var g = generalById(generalId);
+    if (!g || g.kingdom !== state.playerKingdom) { toast('그 세력의 무장을 선택하세요.'); notify(); return; }
+    state.playMode = 'officer';
+    state.playerGeneralId = generalId;
+    state.merit = 0;
+    state.rankIndex = 0;
+    state.personalGold = 300;
+    state.independent = false;
+    state.actedThisTurn = false;
+    state.phase = 'game';
+    var kingdom = state.playerKingdom;
+    pushLog(g.name + '이(가) ' + S.KINGDOMS[kingdom].name + '의 신하로서 입신(立身)의 길을 걷기 시작한다.');
+    notify();
+  }
+
+  // 장수제: 플레이어 무장이 소속된(배치된) 성
+  function officerCity() {
+    if (!state.playerGeneralId) return null;
+    for (var i = 0; i < state.cities.length; i++) {
+      if (state.cities[i].generals.indexOf(state.playerGeneralId) >= 0) return state.cities[i];
+    }
+    // 미배치 상태면 소속 세력의 수도(최대 병력 성)
+    var mine = citiesOf(playerFaction());
+    if (mine.length) { mine.sort(function (a, b) { return b.troops - a.troops; }); return mine[0]; }
+    return null;
+  }
+
+  // 장수제에서 플레이어가 속한 '세력'(독립 시 자기 세력)
+  function playerFaction() { return state.playerKingdom; }
+
+  function currentRank() { return OFFICER_RANKS[state.rankIndex] || OFFICER_RANKS[0]; }
+  function nextRank() { return OFFICER_RANKS[state.rankIndex + 1] || null; }
+
+  // 공훈을 올리고 승진을 판정
+  function addMerit(amount, reason) {
+    state.merit += amount;
+    var nr = nextRank();
+    while (nr && state.merit >= nr.merit) {
+      state.rankIndex++;
+      pushLog('[승진] 공훈을 인정받아 ' + nr.name + '(으)로 승진했다!');
+      toast('승진! 이제 ' + nr.name + '입니다.');
+      nr = nextRank();
+    }
+    if (reason) pushLog('[공훈 +' + amount + '] ' + reason);
+  }
+
+  // ── 장수제 명령 (턴당 1회 근무) ──
+  function officerGuard() { // 근무 공통 가드
+    if (state.playMode !== 'officer') return false;
+    if (state.actedThisTurn) { toast('이번 턴에는 이미 근무했습니다. 턴을 종료하세요.'); notify(); return false; }
+    return true;
+  }
+
+  // 내정 근무: 소속 성을 개발하고 공훈·봉록·지력/정치 경험을 얻는다
+  function officerAdminService(kind) {
+    if (!officerGuard()) return;
+    var c = officerCity();
+    if (!c) { toast('근무할 성이 없습니다.'); notify(); return; }
+    var g = generalById(state.playerGeneralId);
+    // 개발 효과(세력 자원이 아닌 성 능력치에 직접 반영 + 본인 공훈)
+    var eff = 1 + (effStat(g, 'politics') / 100) * 0.5;
+    var gain = Math.round(5 * eff);
+    if (kind === 'agriculture') c.agriculture = Math.min(statCap(c.buildings.irrigation), c.agriculture + gain);
+    else if (kind === 'commerce') c.commerce = Math.min(statCap(c.buildings.market), c.commerce + gain);
+    else { c.defense = Math.min(statCap(c.buildings.fort), c.defense + gain); c.popularity = Math.min(100, c.popularity + 2); }
+    var merit = 10 + Math.round(effStat(g, 'politics') / 10);
+    addMerit(merit, g.name + '이(가) ' + c.name + '에서 내정에 힘썼다.');
+    // 지력/정치 경험 → 삼혼(지혼) 소폭 상승
+    if (!g.spirit) g.spirit = { command: 0, martial: 0, mind: 0 };
+    g.spirit.mind = Math.min(100, g.spirit.mind + 1);
+    state.personalGold += 60;
+    state.actedThisTurn = true;
+    toast('내정 근무 완료 (공훈 +' + merit + ', 금 +60)');
+    notify();
+  }
+
+  // 훈련 근무: 자신의 삼혼을 단련 (개인 금 소모 없음, 공훈 소폭)
+  function officerTrainSelf(spiritKind) {
+    if (!officerGuard()) return;
+    var g = generalById(state.playerGeneralId);
+    if (!g.spirit) g.spirit = { command: 0, martial: 0, mind: 0 };
+    var up = 3 + Math.floor(Math.random() * 3);
+    g.spirit[spiritKind] = Math.min(100, g.spirit[spiritKind] + up);
+    addMerit(5, g.name + '이(가) 무예와 학문을 연마했다.');
+    state.actedThisTurn = true;
+    var label = { command: '통솔혼', martial: '무혼', mind: '지혼' }[spiritKind] || spiritKind;
+    toast('훈련 완료: ' + label + ' +' + up + ' (공훈 +5)');
+    notify();
+  }
+
+  // 임무(순찰/토벌): 확률적 성과. 성공 시 공훈·금, 실패 시 소폭 손실
+  function officerMission() {
+    if (!officerGuard()) return;
+    var g = generalById(state.playerGeneralId);
+    var skill = (effStat(g, 'command') + effStat(g, 'force') + effStat(g, 'intellect')) / 3;
+    var success = Math.random() * 100 < (40 + skill / 2);
+    state.actedThisTurn = true;
+    if (success) {
+      var m = 14 + Math.round(skill / 8);
+      var gold = 120 + Math.floor(Math.random() * 120);
+      addMerit(m, g.name + '이(가) 임무(순찰·토벌)를 완수했다.');
+      state.personalGold += gold;
+      if (!g.spirit) g.spirit = { command: 0, martial: 0, mind: 0 };
+      g.spirit.martial = Math.min(100, g.spirit.martial + 1);
+      toast('임무 성공! (공훈 +' + m + ', 금 +' + gold + ')');
+    } else {
+      pushLog(g.name + '이(가) 임무에 실패하여 체면을 잃었다.');
+      toast('임무 실패... 다음을 기약하자.');
+    }
+    notify();
+  }
+
+  // 출전: 소속 세력의 전선(인접 적 성)으로 자원 참전하여 전투를 지휘
+  function officerSortie() {
+    if (state.playMode !== 'officer') return;
+    if (state.actedThisTurn) { toast('이번 턴에는 이미 근무했습니다.'); notify(); return; }
+    var faction = playerFaction();
+    var myCities = citiesOf(faction);
+    if (!myCities.length) { toast('소속 세력에 성이 없습니다.'); notify(); return; }
+    // 공격 가능한 가장 가까운(여기서는 가장 약한) 적/중립 성 탐색
+    var targets = state.cities.filter(function (c) { return c.kingdom !== faction; });
+    if (!targets.length) { toast('공격할 성이 없습니다. 천하가 통일되었는가?'); notify(); return; }
+    // 플레이어 무장이 있는 성, 없으면 최대 병력 성에서 출병
+    var from = officerCity() || myCities.sort(function (a, b) { return b.troops - a.troops; })[0];
+    if (from.troops < 1500) {
+      // 병력이 부족하면 세력 내 최대 병력 성으로 대체
+      myCities.sort(function (a, b) { return b.troops - a.troops; });
+      from = myCities[0];
+    }
+    if (from.troops < 1500) { toast('출전할 병력이 부족합니다.'); notify(); return; }
+    targets.sort(function (a, b) { return a.troops - b.troops; });
+    var to = targets[0];
+    // 플레이어 무장을 반드시 주장으로 세우기 위해 출발 성에 배치
+    var g = generalById(state.playerGeneralId);
+    if (from.generals.indexOf(g.id) < 0) {
+      state.cities.forEach(function (c) { var i = c.generals.indexOf(g.id); if (i >= 0) c.generals.splice(i, 1); });
+      from.generals.unshift(g.id);
+    }
+    state.actedThisTurn = true;
+    state._officerSortie = true; // 전투 종료 시 공훈 보상 처리를 위한 표식
+    startBattle(from.id, to.id);
+  }
+
+  // 태수 임명: 장군 이상이면 비어있는(무장 없는) 아군 성의 태수가 되어 다스린다
+  function officerBecomeGovernor(cityId) {
+    if (state.playMode !== 'officer') return;
+    if (!currentRank().canGovern) { toast('장군 이상만 성을 다스릴 수 있습니다.'); notify(); return; }
+    var c = cityById(cityId);
+    var g = generalById(state.playerGeneralId);
+    if (!c || c.kingdom !== playerFaction()) { toast('아군 성이 아닙니다.'); notify(); return; }
+    // 플레이어 무장을 그 성으로 이동(태수)
+    state.cities.forEach(function (x) { var i = x.generals.indexOf(g.id); if (i >= 0) x.generals.splice(i, 1); });
+    c.generals.unshift(g.id);
+    addMerit(20, g.name + '이(가) ' + c.name + '의 태수로 부임했다.');
+    toast(c.name + '의 태수가 되었습니다.');
+    notify();
+  }
+
+  // 권신(權臣): 대장군/재상에 올라 세력의 실권을 장악하고 군주제로 전환한다.
+  // (한 성만 떼어 내는 분열 대신, 플레이어가 소속 세력의 군주 역할을 승계하는 방식)
+  function officerDeclareIndependence() {
+    if (state.playMode !== 'officer') return;
+    if (!currentRank().canIndependent) { toast('태수 이상만 실권을 장악할 수 있습니다.'); notify(); return; }
+    var g = generalById(state.playerGeneralId);
+    var home = playerFaction();
+    pushLog('[실권 장악] ' + g.name + '이(가) ' + S.KINGDOMS[home].name + '의 실권을 장악하고 스스로 군주가 되었다!');
+    toast('실권을 장악했습니다! 이제 ' + S.KINGDOMS[home].name + '을(를) 직접 통치합니다.');
+    state.independent = true;
+    state.playMode = 'ruler'; // 이후 nextTurn에서 해당 세력 AI가 돌지 않음
     notify();
   }
 
@@ -680,6 +882,22 @@
   }
 
   function endBattle() {
+    // 장수제 출전 보상 처리
+    if (state._officerSortie && state.battle) {
+      var res = state.battle.result;
+      state._officerSortie = false;
+      var g = generalById(state.playerGeneralId);
+      if (res === 'win') {
+        var m = 40 + Math.round((effStat(g, 'command') + effStat(g, 'force')) / 5);
+        addMerit(m, (g ? g.name : '장수') + '이(가) 출전하여 성을 함락하는 큰 공을 세웠다!');
+        state.personalGold += 300;
+        if (g) { if (!g.spirit) g.spirit = { command: 0, martial: 0, mind: 0 }; g.spirit.command = Math.min(100, g.spirit.command + 2); }
+      } else if (res === 'lose') {
+        pushLog((g ? g.name : '장수') + '의 출전이 실패로 돌아갔다.');
+      } else {
+        addMerit(8, (g ? g.name : '장수') + '이(가) 출전하여 적을 견제했다.');
+      }
+    }
     state.battle = null;
     state.overlay = null;
     notify();
@@ -1090,10 +1308,17 @@
     notify();
   }
 
+  // 플레이어가 직접 통치하는 세력인가? (군주제, 또는 장수제에서 실권을 장악한 경우)
+  function isPlayerControlled(kingdom) {
+    if (kingdom !== state.playerKingdom) return false;
+    if (state.playMode === 'ruler') return true;      // 군주제 또는 독립 후
+    return false;                                      // 장수제(미독립)은 AI가 통치
+  }
+
   // ---- AI ----
   function runAI() {
     AI_KINGDOMS.forEach(function (k) {
-      if (k === state.playerKingdom) return;
+      if (isPlayerControlled(k)) return;
       if (citiesOf(k).length === 0) return;
       var myCities = citiesOf(k);
       var income = kingdomIncome(k);
@@ -1318,10 +1543,31 @@
 
   // ---- 턴 진행 ----
   function nextTurn() {
-    // 플레이어 수입(금)
-    state.gold[state.playerKingdom] += kingdomIncome(state.playerKingdom);
+    // 군주제(또는 독립 후): 플레이어가 직접 통치하는 세력의 금 수입
+    if (isPlayerControlled(state.playerKingdom)) {
+      state.gold[state.playerKingdom] += kingdomIncome(state.playerKingdom);
+    }
     // 전 세력 내정 처리(군량/민심/병력)
     var starve = processDomestic();
+
+    // 장수제: 봉록 지급 + 근무 가능 상태 초기화
+    if (state.playMode === 'officer') {
+      var stipend = currentRank().stipend;
+      state.personalGold += stipend;
+      state.actedThisTurn = false;
+      // 소속 세력이 성에 플레이어 무장을 아직 배치 안 했으면 수도에 배치
+      var g = generalById(state.playerGeneralId);
+      if (g) {
+        var placed = state.cities.some(function (c) { return c.generals.indexOf(g.id) >= 0; });
+        if (!placed) {
+          var home = citiesOf(playerFaction());
+          if (home.length) { home.sort(function (a, b) { return b.troops - a.troops; }); home[0].generals.push(g.id); }
+        }
+      }
+    }
+
+    // AI 세력 행동
+    runAI();
 
     // 턴/연도 진행
     state.turn += 1;
@@ -1365,24 +1611,29 @@
   }
 
   function checkEndConditions() {
-    var playerCities = citiesOf(state.playerKingdom).length;
+    var faction = state.playerKingdom;
+    var playerCities = citiesOf(faction).length;
+
+    // 소속(또는 자기) 세력이 소멸
     if (playerCities === 0) {
+      // 장수제(미독립): 주군이 망하면 패망. (독립/군주제도 성이 0이면 패망)
       state.phase = 'defeat';
       return;
     }
-    // 다른 국가가 모두 소멸(중립 제외)했는지
+
     var rivals = S.KINGDOM_ORDER.filter(function (k) {
-      return k !== state.playerKingdom && citiesOf(k).length > 0;
+      return k !== faction && citiesOf(k).length > 0;
     });
     var nonNeutral = state.cities.filter(function (c) { return c.kingdom !== 'neutral'; });
-    var allMine = nonNeutral.every(function (c) { return c.kingdom === state.playerKingdom; });
+    var allMine = nonNeutral.every(function (c) { return c.kingdom === faction; });
+
+    // 천하통일: 장수제라면 '주군을 도와 통일' = 승리
     if (rivals.length === 0 && allMine) {
       state.phase = 'victory';
       return;
     }
     if (state.turn >= 200) {
-      // 최다 도시 보유국 승리
-      state.phase = (citiesOf(state.playerKingdom).length >= mostCities()) ? 'victory' : 'defeat';
+      state.phase = (citiesOf(faction).length >= mostCities()) ? 'victory' : 'defeat';
     }
   }
 
@@ -1421,6 +1672,21 @@
     scenarioById: scenarioById,
     selectScenario: selectScenario,
     selectKingdom: selectKingdom,
+    startAsRuler: startAsRuler,
+    startAsOfficer: startAsOfficer,
+    // 장수제
+    OFFICER_RANKS: OFFICER_RANKS,
+    officerCity: officerCity,
+    playerFaction: playerFaction,
+    currentRank: currentRank,
+    nextRank: nextRank,
+    isPlayerControlled: isPlayerControlled,
+    officerAdminService: officerAdminService,
+    officerTrainSelf: officerTrainSelf,
+    officerMission: officerMission,
+    officerSortie: officerSortie,
+    officerBecomeGovernor: officerBecomeGovernor,
+    officerDeclareIndependence: officerDeclareIndependence,
     selectCity: selectCity,
     openOverlay: openOverlay,
     closeOverlay: closeOverlay,
