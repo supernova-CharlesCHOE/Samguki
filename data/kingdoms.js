@@ -38,10 +38,34 @@
       difficulty: 3,
       territory: '한반도 동남부. 화랑도의 정예병과 견고한 방어를 갖추었다.',
       trait: '방어력이 높고 무장의 충성심이 강하다.'
+    },
+    tang: {
+      id: 'tang',
+      name: '당나라',
+      hanja: '唐',
+      color: '#4b2e83',      // 짙은 보라
+      colorLight: '#7d5ba6',
+      emblem: 'dragon',      // 용
+      ruler: '당태종',
+      difficulty: 5,
+      territory: '대륙 서북방의 대제국. 압도적인 국력과 대군을 자랑하는 중원의 강자.',
+      trait: '국력과 병력이 압도적이나 사방에 적이 많다.'
+    },
+    wa: {
+      id: 'wa',
+      name: '왜',
+      hanja: '倭',
+      color: '#0b6b5b',      // 청록
+      colorLight: '#12a58c',
+      emblem: 'wave',        // 파도
+      ruler: '왜왕',
+      difficulty: 4,
+      territory: '동남 해상의 열도 세력. 수군에 능하며 백제와 우호적이다.',
+      trait: '수군이 강하고 백제와 전통적으로 가깝다.'
     }
   };
 
-  var KINGDOM_ORDER = ['goguryeo', 'baekje', 'silla'];
+  var KINGDOM_ORDER = ['goguryeo', 'baekje', 'silla', 'tang', 'wa'];
 
   global.SAMGUK = global.SAMGUK || {};
   global.SAMGUK.KINGDOMS = KINGDOMS;

@@ -7,26 +7,59 @@
   var store = S.store;
 
   function K(id) { return S.KINGDOMS[id]; }
+  function aiLevelLabel(lv) { return { normal: '난이도 보통', hard: '난이도 어려움', hell: '난이도 지옥' }[lv] || '난이도 보통'; }
+
+  // ============ 장수제 HUD ============
+  function renderOfficerHUD(state) {
+    var pk = state.playerKingdom;
+    var k = K(pk);
+    var g = store.generalById(state.playerGeneralId);
+    var rank = store.currentRank();
+    var nr = store.nextRank();
+    var meritToNext = nr ? (nr.merit - state.merit) : 0;
+    var cityNow = store.officerCity();
+    return el('div.hud.officer-hud', { style: { '--kcolor': k.color, '--kcolor-light': k.colorLight } }, [
+      el('div.hud-left', null, [
+        el('div.hud-emblem', null, [UI.avatar(g ? g.name : '?', k.colorLight, 40)]),
+        el('div.hud-kingdom', null, [
+          el('div.hud-kingdom-name', { text: (g ? g.name : '') + ' · ' + rank.name }),
+          el('div.hud-turn', { text: k.name + '의 신하 · ' + state.year + '년 ' + state.turn + '턴 · ' + aiLevelLabel(state.aiLevel) })
+        ])
+      ]),
+      el('div.hud-stats', null, [
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '관직' }), el('span.hud-stat-val', { text: rank.name })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '공훈' }), el('span.hud-stat-val', { text: state.merit + (nr ? ' / ' + nr.merit : ' (최고위)') })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '다음 승진' }), el('span.hud-stat-val', { text: nr ? ('공훈 ' + meritToNext) : '—' })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '재산' }), el('span.hud-stat-val', { text: state.personalGold.toLocaleString() + '금' })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '근무지' }), el('span.hud-stat-val', { text: cityNow ? cityNow.name : '-' })])
+      ]),
+      el('button.btn.btn-turn', { text: (state.actedThisTurn ? '턴 종료 ▶' : '턴 종료(미근무) ▶'), onClick: function () { store.nextTurn(); } })
+    ]);
+  }
 
   // ============ HUD ============
   function renderHUD(state) {
+    if (state.playMode === 'officer') return renderOfficerHUD(state);
     var pk = state.playerKingdom;
     var k = K(pk);
     var troops = store.kingdomTroops(pk);
     var income = store.kingdomIncome(pk);
     var cityCount = store.citiesOf(pk).length;
+    var rice = store.kingdomRice ? store.kingdomRice(pk) : 0;
+    var riceBal = store.kingdomRiceBalance ? store.kingdomRiceBalance(pk) : 0;
 
     return el('div.hud', { style: { '--kcolor': k.color, '--kcolor-light': k.colorLight } }, [
       el('div.hud-left', null, [
         el('div.hud-emblem', null, [UI.emblem(k.emblem, k.colorLight, 40)]),
         el('div.hud-kingdom', null, [
           el('div.hud-kingdom-name', { text: k.name + ' (' + k.hanja + ')' }),
-          el('div.hud-turn', { text: state.year + '년 · ' + state.turn + '턴' })
+          el('div.hud-turn', { text: state.year + '년 · ' + state.turn + '턴 · ' + aiLevelLabel(state.aiLevel) })
         ])
       ]),
       el('div.hud-stats', null, [
         el('div.hud-stat', null, [el('span.hud-stat-label', { text: '금' }), el('span.hud-stat-val', { text: state.gold[pk].toLocaleString() })]),
         el('div.hud-stat', null, [el('span.hud-stat-label', { text: '세수/턴' }), el('span.hud-stat-val', { text: '+' + income.toLocaleString() })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '군량' }), el('span.hud-stat-val' + (riceBal < 0 ? '.warn' : ''), { text: rice.toLocaleString() + ' (' + (riceBal >= 0 ? '+' : '') + riceBal.toLocaleString() + ')' })]),
         el('div.hud-stat', null, [el('span.hud-stat-label', { text: '총병력' }), el('span.hud-stat-val', { text: troops.toLocaleString() })]),
         el('div.hud-stat', null, [el('span.hud-stat-label', { text: '영지' }), el('span.hud-stat-val', { text: cityCount + '성' })])
       ]),
@@ -36,11 +69,23 @@
 
   // ============ 사이드 액션 메뉴 ============
   function renderSidePanel(state) {
-    var items = [
-      { name: '무장', overlay: 'generals', icon: '⚔' },
-      { name: '외교', overlay: 'diplomacy', icon: '🕊' },
-      { name: '연표', overlay: 'log', icon: '📜' }
-    ];
+    var items;
+    if (state.playMode === 'officer') {
+      items = [
+        { name: '근무', overlay: 'officer', icon: '📋' },
+        { name: '무장', overlay: 'generals', icon: '⚔' },
+        { name: '연표', overlay: 'log', icon: '📜' },
+        { name: '저장', overlay: 'saveload', icon: '💾' }
+      ];
+    } else {
+      items = [
+        { name: '무장', overlay: 'generals', icon: '⚔' },
+        { name: '등용', overlay: 'recruit', icon: '🤝' },
+        { name: '외교', overlay: 'diplomacy', icon: '🕊' },
+        { name: '연표', overlay: 'log', icon: '📜' },
+        { name: '저장', overlay: 'saveload', icon: '💾' }
+      ];
+    }
     return el('div.side-panel', null, [
       el('div.side-title', { text: '명령' }),
       el('div.side-buttons', null, items.map(function (it) {
@@ -76,7 +121,17 @@
     }).filter(Boolean).join(', ') || '없음';
 
     var actions;
-    if (mine) {
+    if (state.playMode === 'officer') {
+      // 장수제: 소속 세력 성이고 장군 이상이면 태수 부임 가능
+      var faction = store.playerFaction();
+      if (c.kingdom === faction && store.currentRank().canGovern) {
+        actions = [
+          el('button.btn.btn-primary', { text: '태수 부임', onClick: function () { store.officerBecomeGovernor(c.id); } })
+        ];
+      } else {
+        actions = [el('div.city-info-note', { text: '장수제에서는 근무 명령으로 공을 세우세요.' })];
+      }
+    } else if (mine) {
       actions = [
         el('button.btn.btn-primary', { text: '내정', onClick: function () { store.openOverlay('internal'); } }),
         el('button.btn.btn-danger', { text: '출병', onClick: function () { openAttackChooser(c); } })
@@ -97,9 +152,11 @@
       el('div.city-info-stats', null, [
         UI.statBar('농업', c.agriculture, '#6ab04c'),
         UI.statBar('상업', c.commerce, '#c9a227'),
-        UI.statBar('치안', c.defense, '#4a90d9')
+        UI.statBar('치안', c.defense, '#4a90d9'),
+        UI.statBar('민심', c.popularity != null ? c.popularity : 60, (c.popularity >= 70 ? '#6ab04c' : (c.popularity >= 40 ? '#c9a227' : '#c0392b')))
       ]),
-      el('div.city-info-troops', { text: '병력 ' + c.troops.toLocaleString() + ' · 무장: ' + genNames }),
+      el('div.city-info-troops', { text: '병력 ' + c.troops.toLocaleString() + ' · 군량 ' + (c.rice || 0).toLocaleString() }),
+      el('div.city-info-troops', { text: '무장: ' + genNames }),
       el('div.city-info-actions', null, actions)
     ]);
   }
@@ -155,12 +212,18 @@
   // ============ 오버레이 라우팅 ============
   function renderOverlay(state) {
     if (state.pendingEvent) return renderEvent(state);
+    if (state.pendingReport) return renderReport(state);
     if (!state.overlay) return null;
     var body;
     if (state.overlay === 'internal') body = S.Overlays.internal(state);
     else if (state.overlay === 'diplomacy') body = S.Overlays.diplomacy(state);
     else if (state.overlay === 'generals') body = S.Overlays.generals(state);
     else if (state.overlay === 'battle') body = S.Overlays.battle(state);
+    else if (state.overlay === 'duel') body = S.Overlays.duel(state);
+    else if (state.overlay === 'debate') body = S.Overlays.debate(state);
+    else if (state.overlay === 'recruit') body = S.Overlays.recruit(state);
+    else if (state.overlay === 'officer') body = S.Overlays.officer(state);
+    else if (state.overlay === 'saveload') body = S.Overlays.saveload(state);
     else if (state.overlay === 'log') body = renderFullLog(state);
     else return null;
 
@@ -181,18 +244,57 @@
     ]);
   }
 
+  // ============ 턴 결과 보고 팝업 (재해 / 합종연횡) ============
+  function renderReport(state) {
+    var rep = state.pendingReport;
+    return el('div.overlay-backdrop', null, [
+      el('div.event-popup', null, [
+        el('div.event-scroll.report-scroll', null, [
+          el('div.event-year', { text: state.year + '년 · ' + state.turn + '턴' }),
+          el('h2.event-name', { text: '정세 보고' }),
+          el('div.report-lines', null, rep.lines.map(function (ln) {
+            return el('div.report-line', null, [
+              el('div.report-line-title', { text: ln.title }),
+              el('div.report-line-text', { text: ln.text })
+            ]);
+          })),
+          el('button.btn.btn-primary', { text: '확인', onClick: function () { store.dismissReport(); } })
+        ])
+      ])
+    ]);
+  }
+
   // ============ 이벤트 팝업 ============
   function renderEvent(state) {
     var ev = state.pendingEvent;
+    var hasChoices = ev.choices && ev.choices.length && !ev.resolved;
+
+    var body = [
+      el('div.event-year', { text: (ev.year ? ev.year + '년' : '역사의 순간') }),
+      el('h2.event-name', { text: ev.name }),
+      el('p.event-desc', { text: ev.description })
+    ];
+
+    if (hasChoices) {
+      // 미해결 선택지: 선택 버튼 노출
+      body.push(el('div.event-choices', null, ev.choices.map(function (c, i) {
+        return el('button.btn.event-choice-btn', {
+          onClick: function () { store.chooseEventOption(i); }
+        }, [
+          el('span.event-choice-label', { text: c.label }),
+          c.hint ? el('span.event-choice-hint', { text: c.hint }) : null
+        ]);
+      })));
+    } else {
+      // 결과 표시 + 확인
+      if (ev.chosenLabel) body.push(el('div.event-chosen', { text: '▶ ' + ev.chosenLabel }));
+      if (ev.resultText) body.push(el('div.event-result', { text: ev.resultText }));
+      body.push(el('button.btn.btn-primary', { text: '확인', onClick: function () { store.dismissEvent(); } }));
+    }
+
     return el('div.overlay-backdrop', null, [
       el('div.event-popup', null, [
-        el('div.event-scroll', null, [
-          el('div.event-year', { text: (ev.year ? ev.year + '년' : '역사의 순간') }),
-          el('h2.event-name', { text: ev.name }),
-          el('p.event-desc', { text: ev.description }),
-          el('div.event-result', { text: ev.resultText }),
-          el('button.btn.btn-primary', { text: '확인', onClick: function () { store.dismissEvent(); } })
-        ])
+        el('div.event-scroll', null, body)
       ])
     ]);
   }

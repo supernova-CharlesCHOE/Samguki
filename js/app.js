@@ -43,14 +43,24 @@
   function render(state) {
     var content;
     if (state.phase === 'title') content = S.Screens.title(state);
+    else if (state.phase === 'scenario-select') content = S.Screens['scenario-select'](state);
     else if (state.phase === 'kingdom-select') content = S.Screens['kingdom-select'](state);
+    else if (state.phase === 'mode-select') content = S.Screens['mode-select'](state);
     else if (state.phase === 'game') content = S.Game.renderGame(state);
     else if (state.phase === 'victory' || state.phase === 'defeat') content = renderEnd(state);
     else content = S.Screens.title(state);
 
-    var toast = renderToast(state);
     var frag = document.createDocumentFragment();
     frag.appendChild(content);
+
+    // 게임 화면 밖(타이틀 등)에서의 세이브/로드 오버레이
+    if (state.phase !== 'game' && state.overlay === 'saveload') {
+      frag.appendChild(el('div.overlay-backdrop', {
+        onClick: function (e) { if (e.target.classList.contains('overlay-backdrop')) store.closeOverlay(); }
+      }, [S.Overlays.saveload(state)]));
+    }
+
+    var toast = renderToast(state);
     if (toast) frag.appendChild(toast);
     return frag;
   }
