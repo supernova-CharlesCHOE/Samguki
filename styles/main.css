@@ -603,3 +603,24 @@ body {
 .skill-study-name { font-size: 12px; }
 .skill-study-track { height: 5px; background: #2a2114; border-radius: 3px; overflow: hidden; }
 .skill-study-fill { display: block; height: 100%; background: #4a90d9; }
+
+/* =====================================================================
+   AI 난이도 선택 (플레이 방식 화면)
+   ===================================================================== */
+.diff-select {
+  display: flex; align-items: stretch; justify-content: center; gap: 10px;
+  flex-wrap: wrap; margin: 0 0 22px;
+}
+.diff-label {
+  align-self: center; font-size: 14px; color: var(--gold); letter-spacing: 2px; margin-right: 4px;
+}
+.diff-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 18px; min-width: 120px;
+}
+.diff-btn.active {
+  background: linear-gradient(var(--gold), #9c7a10); color: #1a1206;
+  border-color: var(--gold-light); font-weight: bold;
+}
+.diff-btn-name { font-size: 15px; }
+.diff-btn-desc { font-size: 10px; opacity: 0.85; }

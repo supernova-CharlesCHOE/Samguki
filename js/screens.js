@@ -170,12 +170,31 @@
       })
     ]);
 
+    // AI 난이도 선택
+    var levelMeta = {
+      normal: { name: '보통', desc: 'AI와 대등한 승부' },
+      hard:   { name: '어려움', desc: 'AI가 경제·증원·공조로 압박' },
+      hell:   { name: '지옥', desc: 'AI가 사정없이 몰아친다' }
+    };
+    var diffRow = el('div.diff-select', null, [
+      el('span.diff-label', { text: 'AI 난이도' })
+    ].concat(['normal', 'hard', 'hell'].map(function (lv) {
+      return el('button.btn.diff-btn' + (state.aiLevel === lv ? '.active' : ''), {
+        title: levelMeta[lv].desc,
+        onClick: function () { store.setAiLevel(lv); }
+      }, [
+        el('span.diff-btn-name', { text: levelMeta[lv].name }),
+        el('span.diff-btn-desc', { text: levelMeta[lv].desc })
+      ]);
+    })));
+
     return el('div.screen.select-screen.mode-screen', { style: { '--kcolor': k.color, '--kcolor-light': k.colorLight } }, [
       el('div.ink-bg'),
       el('div.select-inner', null, [
         el('button.btn.btn-ghost.back-btn', { text: '← 세력 선택', onClick: function () { store.selectScenario(state.scenarioId); } }),
         el('h2.select-title', { text: '플레이 방식을 선택하라' }),
         el('p.scenario-intro', { text: k.name + ' (' + k.hanja + ') — 군주로 천하를 호령할 것인가, 한 무장으로 입신할 것인가?' }),
+        diffRow,
         el('div.mode-cards', null, [rulerCard, officerCard])
       ])
     ]);

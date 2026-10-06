@@ -7,6 +7,7 @@
   var store = S.store;
 
   function K(id) { return S.KINGDOMS[id]; }
+  function aiLevelLabel(lv) { return { normal: '난이도 보통', hard: '난이도 어려움', hell: '난이도 지옥' }[lv] || '난이도 보통'; }
 
   // ============ 장수제 HUD ============
   function renderOfficerHUD(state) {
@@ -22,7 +23,7 @@
         el('div.hud-emblem', null, [UI.avatar(g ? g.name : '?', k.colorLight, 40)]),
         el('div.hud-kingdom', null, [
           el('div.hud-kingdom-name', { text: (g ? g.name : '') + ' · ' + rank.name }),
-          el('div.hud-turn', { text: k.name + '의 신하 · ' + state.year + '년 ' + state.turn + '턴' })
+          el('div.hud-turn', { text: k.name + '의 신하 · ' + state.year + '년 ' + state.turn + '턴 · ' + aiLevelLabel(state.aiLevel) })
         ])
       ]),
       el('div.hud-stats', null, [
@@ -52,7 +53,7 @@
         el('div.hud-emblem', null, [UI.emblem(k.emblem, k.colorLight, 40)]),
         el('div.hud-kingdom', null, [
           el('div.hud-kingdom-name', { text: k.name + ' (' + k.hanja + ')' }),
-          el('div.hud-turn', { text: state.year + '년 · ' + state.turn + '턴' })
+          el('div.hud-turn', { text: state.year + '년 · ' + state.turn + '턴 · ' + aiLevelLabel(state.aiLevel) })
         ])
       ]),
       el('div.hud-stats', null, [

@@ -167,6 +167,7 @@
       phase: 'title',        // title | scenario-select | kingdom-select | mode-select | game | victory | defeat
       overlay: null,         // null | internal | diplomacy | battle | generals | event | duel | debate | recruit | officer
       playMode: 'ruler',     // 'ruler'(군주제) | 'officer'(장수제)
+      aiLevel: 'normal',     // AI 난이도: 'normal' | 'hard' | 'hell' (플레이 방식 화면에서 선택)
       playerKingdom: null,
       // ── 장수제(Officer) 전용 ──
       playerGeneralId: null, // 플레이어가 조종하는 무장 id
@@ -509,6 +510,10 @@
     state.independent = true;
     state.playMode = 'ruler'; // 이후 nextTurn에서 해당 세력 AI가 돌지 않음
     notify();
+  }
+
+  function setAiLevel(level) {
+    if (AI_LEVELS[level]) { state.aiLevel = level; notify(); }
   }
 
   function selectCity(id) {
@@ -1434,62 +1439,110 @@
   }
 
   // AI 역량은 모든 세력에 동일하게 적용(세력 균형은 시작 자산·지리로 결정).
-  // 값 1.0 기준으로 모집·공격 적극성을 조정한다.
-  function aiCompetence(k) { return 1.0; }
+  // ── AI 난이도 설정 (KOEI식: 상위 난이도일수록 경제 보너스·적극성·공조↑) ──
+  //  goldBonus: 매 턴 세수 배율 / recruit: 모집량·상한 배율 / aggr: 공격 적극성
+  //  atkThreshold: 공격에 필요한 병력 우위(낮을수록 공격적) / gangUp: 선두 세력 집중 공격 확률
+  var AI_LEVELS = {
+    normal: { goldBonus: 1.05, recruit: 1.0,  aggr: 0.15, atkThreshold: 1.6,  gangUp: 0.05, reinforce: false },
+    hard:   { goldBonus: 1.2,  recruit: 1.12, aggr: 0.22, atkThreshold: 1.45, gangUp: 0.25, reinforce: true  },
+    hell:   { goldBonus: 1.4,  recruit: 1.3,  aggr: 0.32, atkThreshold: 1.3,  gangUp: 0.4,  reinforce: true  }
+  };
+  function aiCfg() { return AI_LEVELS[state.aiLevel] || AI_LEVELS.hard; }
+
+  // 선두(최다 성 보유) 세력 — 공조 공격 대상 판정용
+  function leadingKingdom() {
+    var best = null, bestN = -1;
+    S.KINGDOM_ORDER.forEach(function (k) {
+      var n = citiesOf(k).length;
+      if (n > bestN) { bestN = n; best = k; }
+    });
+    return best;
+  }
+
+  // AI 증원: 가장 약한 아군 성으로 가장 강한 아군 성의 병력 일부를 돌린다
+  function aiReinforce(k) {
+    var mine = citiesOf(k);
+    if (mine.length < 2) return;
+    mine.sort(function (a, b) { return a.troops - b.troops; });
+    var weakest = mine[0], strongest = mine[mine.length - 1];
+    // 약한 성이 위험(강한 성의 40% 미만)하고 강한 성에 여유가 있으면 증원
+    if (weakest.troops < strongest.troops * 0.4 && strongest.troops > 4000) {
+      var move = Math.round(strongest.troops * 0.25);
+      strongest.troops -= move;
+      weakest.troops += move;
+    }
+  }
 
   // ---- AI ----
   function runAI() {
+    var cfg = aiCfg();
+    var lead = leadingKingdom();
     AI_KINGDOMS.forEach(function (k) {
       if (isPlayerControlled(k)) return;
       if (citiesOf(k).length === 0) return;
       var myCities = citiesOf(k);
-      var income = kingdomIncome(k);
-      state.gold[k] += income;
-      var comp = aiCompetence(k);
+      // 세수(+난이도 경제 보너스)
+      state.gold[k] += Math.round(kingdomIncome(k) * cfg.goldBonus);
 
       // 내정·모집: 보유한 모든 성을 매 턴 운영 (예산 범위 내에서)
       myCities.forEach(function (city) {
-        // 개발: 금 여유가 있으면 가장 낮은 능력치를 끌어올림
-        if (state.gold[k] >= 300 && Math.random() < 0.7) {
+        if (state.gold[k] >= 300 && Math.random() < 0.75) {
           state.gold[k] -= 300;
           var lowest = Math.min(city.agriculture, city.commerce, city.defense);
           if (city.agriculture === lowest) city.agriculture = Math.min(statCap(city.buildings.irrigation), city.agriculture + 5);
           else if (city.commerce === lowest) city.commerce = Math.min(statCap(city.buildings.market), city.commerce + 5);
           else city.defense = Math.min(statCap(city.buildings.fort), city.defense + 5);
         }
-        // 시설 증축: 능력치가 상한에 닿았고 금이 넉넉하면
-        if (state.gold[k] >= 1200 && Math.random() < 0.15) {
+        if (state.gold[k] >= 1200 && Math.random() < 0.2) {
           var bk = ['irrigation', 'market', 'fort'][Math.floor(Math.random() * 3)];
           if ((city.buildings[bk] || 1) < 3) { state.gold[k] -= 800; city.buildings[bk]++; }
         }
-        // 모집: 인구·민심 비례 상한까지 (유능할수록 더 적극적으로)
-        var recruitCap = Math.round((6000 + (city.population || 60000) / 12 + (city.popularity || 60) * 30) * comp);
-        if (state.gold[k] >= 400 && city.troops < recruitCap) {
+        var recruitCap = Math.round((6000 + (city.population || 60000) / 12 + (city.popularity || 60) * 30) * cfg.recruit);
+        // 금이 허락하는 한 여러 번 모집(강한 경제가 대군으로 이어지도록)
+        var tries = 0;
+        while (state.gold[k] >= 400 && city.troops < recruitCap && tries < 3) {
           state.gold[k] -= 400;
-          city.troops += Math.round(1500 * comp);
+          city.troops += Math.round(1500 * cfg.recruit);
+          tries++;
         }
       });
 
-      // 공격 판단: 비동맹 적국 중, 유능할수록 더 낮은 병력 우위에서도 공격
+      // 증원(위험한 성 보강)
+      if (cfg.reinforce) aiReinforce(k);
+
+      // 공격 판단
       var enemies = S.KINGDOM_ORDER.filter(function (o) {
         return o !== k && !state.diplomacy[k][o].alliance && citiesOf(o).length > 0;
       });
       var myTroops = kingdomTroops(k);
-      var atkThreshold = 1.7 - (comp - 1.0) * 1.5; // comp1.2→1.4, comp0.96→1.76
+      var attacksThisTurn = 0;
+      var maxAttacks = state.aiLevel === 'hell' ? 2 : 1;
+      // 선두 세력(특히 플레이어가 선두면) 집중 견제
+      enemies.sort(function (a, b) {
+        var pa = (a === lead ? -1000 : 0) + (a === state.playerKingdom ? -500 : 0);
+        var pb = (b === lead ? -1000 : 0) + (b === state.playerKingdom ? -500 : 0);
+        return (pa - kingdomTroops(a)) - (pb - kingdomTroops(b));
+      });
       enemies.forEach(function (en) {
+        if (attacksThisTurn >= maxAttacks) return;
         var enTroops = kingdomTroops(en);
         var atWar = state.diplomacy[k][en].war;
-        if ((atWar || Math.random() < 0.15 * comp) && myTroops > enTroops * atkThreshold) {
+        // 선두/플레이어 견제: gangUp 확률로 열세여도 공조 공격
+        var isTarget = (en === lead || en === state.playerKingdom);
+        var threshold = isTarget ? cfg.atkThreshold * 0.9 : cfg.atkThreshold;
+        var willAttack = atWar || Math.random() < cfg.aggr || (isTarget && Math.random() < cfg.gangUp);
+        if (willAttack && myTroops > enTroops * threshold) {
           aiAttack(k, en);
+          attacksThisTurn++;
         }
       });
       // 중립성 정복 시도
       var neutrals = state.cities.filter(function (c) { return c.kingdom === 'neutral'; });
-      if (neutrals.length && Math.random() < 0.3) {
+      if (neutrals.length && Math.random() < 0.35) {
         aiAttackCity(k, neutrals[Math.floor(Math.random() * neutrals.length)]);
       }
 
-      // 외교: 약하면 플레이어에게 우호 시도
+      // 외교: 약하면 강한 상대(특히 플레이어)에게 우호/동맹 시도
       if (state.playerKingdom && state.diplomacy[k][state.playerKingdom] &&
           myTroops < kingdomTroops(state.playerKingdom) * 0.7 && Math.random() < 0.3) {
         var rel = state.diplomacy[k][state.playerKingdom];
@@ -1513,7 +1566,10 @@
     atkCities.sort(function (a, b) { return b.troops - a.troops; });
     var from = atkCities[0];
     if (from.troops < 3000) return;
-    var deploy = Math.floor(from.troops * 0.6);
+    // 난이도가 높을수록 더 많은 병력을 투입(결정적 공세)
+    var cfgD = aiCfg();
+    var deployFrac = state.aiLevel === 'hell' ? 0.75 : (state.aiLevel === 'hard' ? 0.68 : 0.6);
+    var deploy = Math.floor(from.troops * deployFrac);
     var atkGen = bestGeneral(from);
     var defGen = bestGeneral(targetCity);
     var atkPow = (atkGen ? effStat(atkGen, 'command') + effStat(atkGen, 'force') : 120) / 2;
@@ -1818,6 +1874,8 @@
     selectKingdom: selectKingdom,
     startAsRuler: startAsRuler,
     startAsOfficer: startAsOfficer,
+    setAiLevel: setAiLevel,
+    AI_LEVELS: AI_LEVELS,
     // 장수제
     OFFICER_RANKS: OFFICER_RANKS,
     officerCity: officerCity,
