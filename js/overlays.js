@@ -216,15 +216,19 @@
     }
 
     function card(g, locked) {
-      var color = K(g.kingdom).colorLight;
+      // 'free'(재야) 등 KINGDOMS에 없는 소속도 안전하게 처리
+      var kd = K(g.kingdom);
+      var color = kd ? kd.colorLight : '#9a8d6f';
+      var kcolor = kd ? kd.color : '#5a5346';
+      var kname = kd ? kd.name : '재야';
       var assignment = loc[g.id] ? loc[g.id].name : '재야';
       var mineCard = !locked && g.kingdom === pk;
-      return el('div.general-card' + (locked ? '.locked' : ''), { style: { '--kcolor': K(g.kingdom).color } }, [
+      return el('div.general-card' + (locked ? '.locked' : ''), { style: { '--kcolor': kcolor } }, [
         el('div.general-top', null, [
           UI.avatar(locked ? '?' : g.name, color, 52),
           el('div.general-id', null, [
             el('div.general-name', { text: locked ? '???' : g.name }),
-            el('div.general-kingdom', { text: K(g.kingdom).name + (locked ? '' : ' · ' + assignment) })
+            el('div.general-kingdom', { text: kname + (locked ? '' : ' · ' + assignment) })
           ])
         ]),
         locked ? el('div.general-locked-note', { text: '아직 정보가 알려지지 않았다.' }) :

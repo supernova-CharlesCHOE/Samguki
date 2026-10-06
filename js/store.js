@@ -116,9 +116,10 @@
       g.skillExp[id] -= SKILL_EXP_PER_LEVEL;
       g.skills[id]++;
       var def = skillDef(id);
+      var dname = def ? def.name : id;
       if (!silent) {
-        pushLog('[기능] ' + g.name + '의 ' + (def ? def.name : id) + '이(가) Lv.' + g.skills[id] + '(으)로 올랐다.');
-        if (g.id === state.playerGeneralId) toast(def.name + ' 기능이 Lv.' + g.skills[id] + '(으)로 상승!');
+        pushLog('[기능] ' + g.name + '의 ' + dname + '이(가) Lv.' + g.skills[id] + '(으)로 올랐다.');
+        if (g.id === state.playerGeneralId) toast(dname + ' 기능이 Lv.' + g.skills[id] + '(으)로 상승!');
       }
     }
     if (g.skills[id] >= SKILL_MAX) g.skillExp[id] = 0;
@@ -481,14 +482,17 @@
   // 태수 임명: 장군 이상이면 비어있는(무장 없는) 아군 성의 태수가 되어 다스린다
   function officerBecomeGovernor(cityId) {
     if (state.playMode !== 'officer') return;
+    if (state.actedThisTurn) { toast('이번 턴에는 이미 근무했습니다. 턴을 종료하세요.'); notify(); return; }
     if (!currentRank().canGovern) { toast('장군 이상만 성을 다스릴 수 있습니다.'); notify(); return; }
     var c = cityById(cityId);
     var g = generalById(state.playerGeneralId);
     if (!c || c.kingdom !== playerFaction()) { toast('아군 성이 아닙니다.'); notify(); return; }
+    if (c.generals.indexOf(g.id) >= 0) { toast('이미 ' + c.name + '에 있습니다.'); notify(); return; }
     // 플레이어 무장을 그 성으로 이동(태수)
     state.cities.forEach(function (x) { var i = x.generals.indexOf(g.id); if (i >= 0) x.generals.splice(i, 1); });
     c.generals.unshift(g.id);
     addMerit(20, g.name + '이(가) ' + c.name + '의 태수로 부임했다.');
+    state.actedThisTurn = true;
     toast(c.name + '의 태수가 되었습니다.');
     notify();
   }
@@ -1513,6 +1517,18 @@
       var loss = Math.round(targetCity.troops * (0.6 + Math.random() * 0.3));
       var atkLoss = Math.round(deploy * (0.3 + Math.random() * 0.3));
       var isPlayerLoss = targetCity.kingdom === state.playerKingdom;
+      // 장수제: 함락당하는 성에 플레이어 무장이 있으면 같은 세력 다른 성으로 후퇴시킨다
+      if (state.playMode === 'officer' && state.playerGeneralId &&
+          targetCity.generals.indexOf(state.playerGeneralId) >= 0) {
+        var refuge = citiesOf(targetCity.kingdom).filter(function (x) { return x.id !== targetCity.id; });
+        var pidx = targetCity.generals.indexOf(state.playerGeneralId);
+        targetCity.generals.splice(pidx, 1);
+        if (refuge.length) {
+          refuge.sort(function (a, b) { return b.troops - a.troops; });
+          refuge[0].generals.push(state.playerGeneralId);
+          pushLog('[후퇴] ' + generalById(state.playerGeneralId).name + '이(가) ' + targetCity.name + ' 함락 전에 ' + refuge[0].name + '(으)로 몸을 피했다.');
+        }
+      }
       targetCity.kingdom = attacker;
       targetCity.troops = Math.max(500, deploy - atkLoss);
       if (atkGen) {
