@@ -1383,7 +1383,7 @@
     boostKingdomDefense: function (st, k, amt) {
       citiesOfIn(st, k).forEach(function (c) { c.defense = Math.min(100, c.defense + amt); });
     },
-    boostKingdomGold: function (st, k, amt) { st.gold[k] += amt; },
+    boostKingdomGold: function (st, k, amt) { if (st.gold[k] != null) st.gold[k] += amt; },
     boostCity: function (st, id, obj) {
       var c = null;
       st.cities.forEach(function (x) { if (x.id === id) c = x; });
@@ -1399,35 +1399,144 @@
           if (a !== b) st.diplomacy[a][b].relation = Math.max(-100, st.diplomacy[a][b].relation - 10);
         });
       });
+    },
+
+    // ── 확장 연산자 (선택지 이벤트용) ──
+    player: function (st) { return st.playerKingdom; },      // 플레이어 세력 id
+    isOfficer: function (st) { return st.playMode === 'officer'; },
+    // 플레이어 세력(장수제도 소속 세력) 전 성에 효과
+    playerCities: function (st) {
+      return st.cities.filter(function (c) { return c.kingdom === st.playerKingdom; });
+    },
+    // 플레이어 자원: 군주제=국고, 장수제=개인 재산
+    addPlayerGold: function (st, amt) {
+      if (st.playMode === 'officer') st.personalGold = Math.max(0, st.personalGold + amt);
+      else if (st.gold[st.playerKingdom] != null) st.gold[st.playerKingdom] += amt;
+    },
+    addMerit: function (st, amt) { if (st.playMode === 'officer') addMerit(amt); },
+    // 플레이어 전 성 능력치/민심/병력 보정
+    playerStat: function (st, key, amt) {
+      eventApi.playerCities(st).forEach(function (c) {
+        if (key === 'troops') c.troops = Math.max(0, Math.round(c.troops + amt));
+        else c[key] = Math.max(0, Math.min(100, (c[key] || 0) + amt));
+      });
+    },
+    playerTroopsMult: function (st, mult) {
+      eventApi.playerCities(st).forEach(function (c) { c.troops = Math.round(c.troops * mult); });
+    },
+    // 외교 관계/상태
+    relation: function (st, a, b, delta) {
+      if (st.diplomacy[a] && st.diplomacy[a][b]) {
+        var v = Math.max(-100, Math.min(100, st.diplomacy[a][b].relation + delta));
+        st.diplomacy[a][b].relation = v; st.diplomacy[b][a].relation = v;
+      }
+    },
+    setWar: function (st, a, b, on) {
+      if (st.diplomacy[a] && st.diplomacy[a][b]) {
+        st.diplomacy[a][b].war = on; st.diplomacy[b][a].war = on;
+        if (on) { st.diplomacy[a][b].alliance = false; st.diplomacy[b][a].alliance = false; }
+      }
+    },
+    setAlliance: function (st, a, b, on) {
+      if (st.diplomacy[a] && st.diplomacy[a][b]) {
+        st.diplomacy[a][b].alliance = on; st.diplomacy[b][a].alliance = on;
+        if (on) { st.diplomacy[a][b].war = false; st.diplomacy[b][a].war = false; }
+      }
+    },
+    // 무장 충성/능력치/기능
+    generalById: function (st, id) { for (var i = 0; i < st.generals.length; i++) if (st.generals[i].id === id) return st.generals[i]; return null; },
+    loyalty: function (st, id, delta) { var g = eventApi.generalById(st, id); if (g) g.loyalty = Math.max(0, Math.min(100, g.loyalty + delta)); },
+    grantSkillExp: function (st, id, skill, amt) { var g = eventApi.generalById(st, id); if (g) gainSkillExp(g, skill, amt, true); },
+    // 플레이어 무장(장수제의 본인). 없으면 세력 군주
+    playerGeneral: function (st) {
+      if (st.playerGeneralId) return eventApi.generalById(st, st.playerGeneralId);
+      return eventApi.generalById(st, S.RULERS[st.playerKingdom]);
+    },
+    // 재야 무장 1인을 플레이어 세력으로 등용
+    recruitRandomFree: function (st) {
+      var frees = st.generals.filter(function (g) { return g.free; });
+      if (!frees.length) return null;
+      var g = frees[Math.floor(Math.random() * frees.length)];
+      g.kingdom = st.playerKingdom; g.free = false; g.loyalty = Math.max(70, g.loyalty);
+      var mine = eventApi.playerCities(st);
+      if (mine.length) { mine.sort(function (a, b) { return b.troops - a.troops; }); mine[0].generals.push(g.id); }
+      return g;
     }
   };
   function citiesOfIn(st, kingdom) {
     return st.cities.filter(function (c) { return c.kingdom === kingdom; });
   }
 
+  // 선택지 이벤트의 효과 적용을 위해 현재 이벤트 정의를 보관
+  var _activeEvent = null;
+
+  function eventEligible(ev) {
+    // 반복 가능 이벤트가 아니면 1회만
+    if (!ev.repeatable && state.firedEvents[ev.id]) return false;
+    if (state.turn < (ev.turnMin || 0) || state.turn > (ev.turnMax || 9999)) return false;
+    // 국가 한정 이벤트면 해당 국가가 아직 존재해야 함
+    if (ev.kingdom && citiesOf(ev.kingdom).length === 0) return false;
+    // 플레이 방식 한정 (mode: 'officer' | 'ruler')
+    if (ev.mode && ev.mode !== state.playMode) return false;
+    // 사용자 정의 조건
+    if (typeof ev.condition === 'function') { try { if (!ev.condition(state, eventApi)) return false; } catch (e) { return false; } }
+    return true;
+  }
+
   function checkAndTriggerEvent() {
+    // 자격 있는 이벤트를 모아 가중 추첨 (고정 이벤트 우선순위는 순서대로 확률 판정)
     for (var i = 0; i < S.EVENTS.length; i++) {
       var ev = S.EVENTS[i];
-      if (state.firedEvents[ev.id]) continue;
-      if (state.turn < ev.turnMin || state.turn > ev.turnMax) continue;
-      // 국가 한정 이벤트면 해당 국가가 아직 존재해야 함
-      if (ev.kingdom && citiesOf(ev.kingdom).length === 0) continue;
-      // 발생 확률
-      if (Math.random() < 0.35) {
-        state.firedEvents[ev.id] = true;
-        var msg = ev.effect(state, eventApi);
-        pushLog('[' + ev.name + '] ' + msg);
-        state.pendingEvent = {
-          name: ev.name, year: ev.year, description: ev.description, resultText: msg
-        };
-        return true;
+      if (!eventEligible(ev)) continue;
+      var chance = (typeof ev.chance === 'number') ? ev.chance : 0.35;
+      if (Math.random() < chance) {
+        return fireEvent(ev);
       }
     }
     return false;
   }
 
+  function fireEvent(ev) {
+    state.firedEvents[ev.id] = true;
+    _activeEvent = ev;
+    if (ev.choices && ev.choices.length) {
+      // 선택지 이벤트: 효과는 선택 시 적용. 팝업에 선택지 노출
+      state.pendingEvent = {
+        name: ev.name, year: ev.year, description: ev.description,
+        choices: ev.choices.map(function (c) { return { label: c.label, hint: c.hint || '' }; }),
+        resultText: null, resolved: false
+      };
+    } else {
+      // 즉시 효과 이벤트 (기존 방식)
+      var msg = ev.effect ? ev.effect(state, eventApi) : '';
+      pushLog('[' + ev.name + '] ' + msg);
+      state.pendingEvent = {
+        name: ev.name, year: ev.year, description: ev.description, resultText: msg, resolved: true
+      };
+    }
+    return true;
+  }
+
+  // 선택지 선택 → 해당 효과 적용 → 결과 표시(팝업 유지)
+  function chooseEventOption(idx) {
+    var ev = _activeEvent;
+    if (!ev || !ev.choices || !state.pendingEvent || state.pendingEvent.resolved) return;
+    var choice = ev.choices[idx];
+    if (!choice) return;
+    var msg = '';
+    try { msg = choice.effect ? choice.effect(state, eventApi) : ''; } catch (e) { msg = ''; }
+    pushLog('[' + ev.name + '] ' + choice.label + (msg ? ' — ' + msg : ''));
+    state.pendingEvent.resultText = msg || choice.label;
+    state.pendingEvent.chosenLabel = choice.label;
+    state.pendingEvent.resolved = true;
+    // 선택 결과가 승패에 영향 줄 수 있으니 재판정
+    checkEndConditions();
+    notify();
+  }
+
   function dismissEvent() {
     state.pendingEvent = null;
+    _activeEvent = null;
     notify();
   }
 
@@ -2071,6 +2180,7 @@
     recruitTarget: recruitTarget,
     swornOath: swornOath,
     dismissEvent: dismissEvent,
+    chooseEventOption: chooseEventOption,
     dismissReport: dismissReport,
     nextTurn: nextTurn
   };

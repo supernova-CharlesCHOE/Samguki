@@ -267,15 +267,34 @@
   // ============ 이벤트 팝업 ============
   function renderEvent(state) {
     var ev = state.pendingEvent;
+    var hasChoices = ev.choices && ev.choices.length && !ev.resolved;
+
+    var body = [
+      el('div.event-year', { text: (ev.year ? ev.year + '년' : '역사의 순간') }),
+      el('h2.event-name', { text: ev.name }),
+      el('p.event-desc', { text: ev.description })
+    ];
+
+    if (hasChoices) {
+      // 미해결 선택지: 선택 버튼 노출
+      body.push(el('div.event-choices', null, ev.choices.map(function (c, i) {
+        return el('button.btn.event-choice-btn', {
+          onClick: function () { store.chooseEventOption(i); }
+        }, [
+          el('span.event-choice-label', { text: c.label }),
+          c.hint ? el('span.event-choice-hint', { text: c.hint }) : null
+        ]);
+      })));
+    } else {
+      // 결과 표시 + 확인
+      if (ev.chosenLabel) body.push(el('div.event-chosen', { text: '▶ ' + ev.chosenLabel }));
+      if (ev.resultText) body.push(el('div.event-result', { text: ev.resultText }));
+      body.push(el('button.btn.btn-primary', { text: '확인', onClick: function () { store.dismissEvent(); } }));
+    }
+
     return el('div.overlay-backdrop', null, [
       el('div.event-popup', null, [
-        el('div.event-scroll', null, [
-          el('div.event-year', { text: (ev.year ? ev.year + '년' : '역사의 순간') }),
-          el('h2.event-name', { text: ev.name }),
-          el('p.event-desc', { text: ev.description }),
-          el('div.event-result', { text: ev.resultText }),
-          el('button.btn.btn-primary', { text: '확인', onClick: function () { store.dismissEvent(); } })
-        ])
+        el('div.event-scroll', null, body)
       ])
     ]);
   }

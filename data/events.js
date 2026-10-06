@@ -247,6 +247,307 @@
         api.raiseTension(state);
         return '안시성 싸움으로 당의 병력이 강화되고 요서 전선의 긴장이 고조되었다.';
       }
+    },
+
+    // ===================================================================
+    //  선택지 이벤트 (選擇肢) — 플레이어의 결정이 국면을 바꾼다
+    //  choices: [{ label, hint, effect(state, api) -> 결과 문자열 }]
+    // ===================================================================
+    {
+      id: 'choice_famine_relief',
+      name: '흉년이 든 해',
+      turnMin: 4, turnMax: 180,
+      chance: 0.28, repeatable: true,
+      description: '올해 농사가 크게 흉작이다. 창고를 열어 백성을 구휼할 것인가, 군량으로 비축할 것인가?',
+      choices: [
+        {
+          label: '창고를 열어 백성을 구휼한다',
+          hint: '민심 크게 상승, 군량·재정 소모',
+          effect: function (state, api) {
+            api.playerStat(state, 'popularity', 12);
+            api.addPlayerGold(state, -400);
+            api.playerCities(state).forEach(function (c) { c.rice = Math.max(0, Math.round((c.rice || 0) * 0.9)); });
+            return '구휼로 민심이 크게 올랐으나 재정과 군량이 줄었다.';
+          }
+        },
+        {
+          label: '군량으로 비축한다',
+          hint: '민심 하락, 군량 유지',
+          effect: function (state, api) {
+            api.playerStat(state, 'popularity', -8);
+            return '백성의 원망을 샀으나 군량을 지켰다.';
+          }
+        }
+      ]
+    },
+    {
+      id: 'choice_wandering_general',
+      name: '떠도는 호걸',
+      turnMin: 3, turnMax: 180,
+      chance: 0.25, repeatable: true,
+      condition: function (state, api) { return state.generals.some(function (g) { return g.free; }); },
+      description: '재야의 한 호걸이 그대의 명성을 듣고 찾아왔다. 어찌 대우할 것인가?',
+      choices: [
+        {
+          label: '후하게 대접하여 등용한다',
+          hint: '재물을 들여 재야 무장 등용',
+          effect: function (state, api) {
+            api.addPlayerGold(state, -500);
+            var g = api.recruitRandomFree(state);
+            return g ? (g.name + '을(를) 막하에 거두었다!') : '마땅한 인재가 없었다.';
+          }
+        },
+        {
+          label: '예로써 보내되 재물은 아낀다',
+          hint: '민심 소폭 상승, 등용 없음',
+          effect: function (state, api) {
+            api.playerStat(state, 'popularity', 3);
+            return '정중히 돌려보내니 그 소문이 좋게 퍼졌다.';
+          }
+        }
+      ]
+    },
+    {
+      id: 'choice_border_raid',
+      name: '국경의 도적떼',
+      turnMin: 5, turnMax: 190,
+      chance: 0.26, repeatable: true,
+      description: '변경에 도적떼가 창궐하여 백성을 노략질한다. 어떻게 대응할 것인가?',
+      choices: [
+        {
+          label: '정예병을 보내 토벌한다',
+          hint: '치안 상승·민심 상승, 병력 소모',
+          effect: function (state, api) {
+            api.playerStat(state, 'defense', 6);
+            api.playerStat(state, 'popularity', 6);
+            api.playerStat(state, 'troops', -600);
+            if (api.isOfficer(state)) api.addMerit(state, 15);
+            return '도적을 소탕하여 변경이 안정되었다.';
+          }
+        },
+        {
+          label: '성문을 닫고 지켜본다',
+          hint: '병력 보존, 민심 하락',
+          effect: function (state, api) {
+            api.playerStat(state, 'popularity', -6);
+            return '백성이 노략질에 시달려 원성이 높아졌다.';
+          }
+        },
+        {
+          label: '도적 두목을 회유해 끌어들인다',
+          hint: '재물로 병력 확보 (성공 시)',
+          effect: function (state, api) {
+            api.addPlayerGold(state, -300);
+            if (Math.random() < 0.6) { api.playerStat(state, 'troops', 1500); return '도적떼를 아군 병사로 받아들였다!'; }
+            return '회유가 통하지 않아 재물만 잃었다.';
+          }
+        }
+      ]
+    },
+    {
+      id: 'choice_merchant_caravan',
+      name: '서역 대상(大商)의 방문',
+      turnMin: 6, turnMax: 190,
+      chance: 0.24, repeatable: true,
+      description: '먼 서역에서 온 대상이 진귀한 물자를 싣고 와 교역을 청한다.',
+      choices: [
+        {
+          label: '시장을 열어 교역한다',
+          hint: '상업·재정 상승',
+          effect: function (state, api) {
+            api.playerStat(state, 'commerce', 5);
+            api.addPlayerGold(state, 600);
+            return '교역으로 상업이 융성하고 국고가 두둑해졌다.';
+          }
+        },
+        {
+          label: '명마를 사들인다',
+          hint: '재물을 들여 기병 강화(병력)',
+          effect: function (state, api) {
+            api.addPlayerGold(state, -500);
+            api.playerStat(state, 'troops', 1000);
+            return '서역의 준마를 들여 기병을 보강했다.';
+          }
+        }
+      ]
+    },
+    {
+      id: 'choice_omen',
+      name: '하늘의 조짐',
+      turnMin: 8, turnMax: 190,
+      chance: 0.2, repeatable: true,
+      description: '밤하늘에 혜성이 길게 꼬리를 끌었다. 점술가들이 길흉을 두고 논쟁한다.',
+      choices: [
+        {
+          label: '하늘에 제사를 올려 민심을 다독인다',
+          hint: '민심·치안 상승, 재정 소모',
+          effect: function (state, api) {
+            api.addPlayerGold(state, -300);
+            api.playerStat(state, 'popularity', 8);
+            api.playerStat(state, 'defense', 3);
+            return '성대한 제사로 민심이 하나로 모였다.';
+          }
+        },
+        {
+          label: '조짐을 무시하고 군비를 다진다',
+          hint: '병력 소폭 증가, 민심 소폭 하락',
+          effect: function (state, api) {
+            api.playerStat(state, 'troops', 800);
+            api.playerStat(state, 'popularity', -4);
+            return '군비를 다졌으나 백성은 불안에 떨었다.';
+          }
+        }
+      ]
+    },
+
+    // ===================================================================
+    //  장수제(將帥制) 전용 개인 이벤트
+    // ===================================================================
+    {
+      id: 'officer_lord_summons',
+      name: '주군의 부름',
+      mode: 'officer',
+      turnMin: 3, turnMax: 190,
+      chance: 0.3, repeatable: true,
+      description: '주군이 그대를 불러 중책을 맡기려 한다. 어떤 임무를 청할 것인가?',
+      choices: [
+        {
+          label: '전장의 선봉을 자원한다',
+          hint: '공훈 크게 상승, 무예 숙련',
+          effect: function (state, api) {
+            api.addMerit(state, 30);
+            var g = api.playerGeneral(state);
+            if (g) api.grantSkillExp(state, g.id, 'martial', 40);
+            return '선봉을 자원하니 주군이 크게 기뻐했다. (공훈 +30)';
+          }
+        },
+        {
+          label: '내정을 맡아 치세를 돕는다',
+          hint: '공훈·재물 상승, 지혼 수련',
+          effect: function (state, api) {
+            api.addMerit(state, 18);
+            api.addPlayerGold(state, 300);
+            var g = api.playerGeneral(state);
+            if (g) api.grantSkillExp(state, g.id, 'arithmetic', 40);
+            return '내정의 공으로 공훈과 재물을 얻었다. (공훈 +18)';
+          }
+        }
+      ]
+    },
+    {
+      id: 'officer_sworn_offer',
+      name: '의형제의 제안',
+      mode: 'officer',
+      turnMin: 5, turnMax: 190,
+      chance: 0.22, repeatable: true,
+      description: '함께 전장을 누빈 동료가 생사를 함께하는 의형제의 결의를 제안한다.',
+      choices: [
+        {
+          label: '피를 나누어 의형제를 맺는다',
+          hint: '충성·사기 상승',
+          effect: function (state, api) {
+            var g = api.playerGeneral(state);
+            if (g) api.loyalty(state, g.id, 10);
+            api.addMerit(state, 10);
+            return '의형제의 결의로 결속이 굳건해졌다.';
+          }
+        },
+        {
+          label: '마음만 받고 거절한다',
+          hint: '변화 없음',
+          effect: function (state, api) { return '정중히 사양하였다.'; }
+        }
+      ]
+    },
+
+    // ===================================================================
+    //  군주제(君主制) 전용 통치 이벤트
+    // ===================================================================
+    {
+      id: 'ruler_corrupt_official',
+      name: '탐관오리의 발각',
+      mode: 'ruler',
+      turnMin: 6, turnMax: 190,
+      chance: 0.24, repeatable: true,
+      description: '한 지방관이 세금을 가로채 사욕을 채운 사실이 드러났다. 어찌 처결할 것인가?',
+      choices: [
+        {
+          label: '엄히 처벌하고 재물을 몰수한다',
+          hint: '민심 상승·재정 회수',
+          effect: function (state, api) {
+            api.playerStat(state, 'popularity', 7);
+            api.addPlayerGold(state, 500);
+            return '백성이 통쾌해하고 몰수한 재물이 국고에 들어왔다.';
+          }
+        },
+        {
+          label: '덮어두고 충성을 산다',
+          hint: '재정 상승, 민심 하락',
+          effect: function (state, api) {
+            api.addPlayerGold(state, 300);
+            api.playerStat(state, 'popularity', -8);
+            return '뒷거래로 재물은 얻었으나 민심이 떠났다.';
+          }
+        }
+      ]
+    },
+    {
+      id: 'ruler_defector',
+      name: '적국의 밀사',
+      mode: 'ruler',
+      turnMin: 10, turnMax: 190,
+      chance: 0.2, repeatable: true,
+      condition: function (state, api) {
+        // 전쟁 중인 상대가 있을 때
+        var p = state.playerKingdom;
+        return Object.keys(state.diplomacy[p] || {}).some(function (o) { return state.diplomacy[p][o].war; });
+      },
+      description: '적국의 장수가 은밀히 투항의 뜻을 전해왔다. 받아들일 것인가?',
+      choices: [
+        {
+          label: '후하게 맞아들인다',
+          hint: '재물을 들여 적장 회유(병력 확보)',
+          effect: function (state, api) {
+            api.addPlayerGold(state, -600);
+            if (Math.random() < 0.65) { api.playerStat(state, 'troops', 2000); return '적장이 군사를 이끌고 귀순했다!'; }
+            return '투항은 거짓이었다. 재물만 잃었다.';
+          }
+        },
+        {
+          label: '함정일지 모르니 거절한다',
+          hint: '변화 없음',
+          effect: function (state, api) { return '신중을 기해 밀사를 돌려보냈다.'; }
+        }
+      ]
+    },
+
+    // ===================================================================
+    //  반복형 돌발 이벤트 (길흉)
+    // ===================================================================
+    {
+      id: 'random_bumper_harvest',
+      name: '대풍년',
+      turnMin: 5, turnMax: 195,
+      chance: 0.18, repeatable: true,
+      description: '하늘이 도와 전에 없는 대풍년이 들었다! 곳간이 넘쳐난다.',
+      effect: function (state, api) {
+        api.playerCities(state).forEach(function (c) { c.rice = Math.round((c.rice || 0) + 1500); });
+        api.playerStat(state, 'popularity', 6);
+        return '대풍년으로 군량이 가득 차고 민심이 넉넉해졌다.';
+      }
+    },
+    {
+      id: 'random_veteran_officer',
+      name: '노련한 책사의 조언',
+      turnMin: 8, turnMax: 195,
+      chance: 0.16, repeatable: true,
+      description: '한 노련한 책사가 그대에게 병법과 치국의 요체를 들려준다.',
+      effect: function (state, api) {
+        var g = api.playerGeneral(state);
+        if (g) { api.grantSkillExp(state, g.id, 'military', 35); api.grantSkillExp(state, g.id, 'rhetoric', 25); }
+        if (api.isOfficer(state)) api.addMerit(state, 8);
+        return '값진 가르침으로 식견이 트였다.';
+      }
     }
   ];
 
