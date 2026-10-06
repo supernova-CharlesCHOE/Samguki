@@ -7,35 +7,35 @@
     // ===== 고구려 (북부/만주) =====
     { id: 'liaodong', name: '요동성', kingdom: 'goguryeo', province: '요동',
       x: 70, y: 95, population: 90000, agriculture: 45, commerce: 40, defense: 70,
-      troops: 12000, generals: ['gwanggaeto'] },
+      troops: 10000, generals: ['gwanggaeto'] },
     { id: 'gungnae', name: '국내성', kingdom: 'goguryeo', province: '만주',
       x: 190, y: 110, population: 80000, agriculture: 40, commerce: 45, defense: 65,
-      troops: 9000, generals: ['jangsu'] },
+      troops: 8000, generals: ['jangsu'] },
     { id: 'pyongyang', name: '평양성', kingdom: 'goguryeo', province: '패수',
       x: 175, y: 210, population: 120000, agriculture: 60, commerce: 65, defense: 80,
-      troops: 14000, generals: ['euljimundeok', 'yeongaesomun'] },
+      troops: 11000, generals: ['euljimundeok', 'yeongaesomun'] },
     { id: 'hanseong_g', name: '한성', kingdom: 'goguryeo', province: '한강 북안',
       x: 200, y: 285, population: 70000, agriculture: 55, commerce: 50, defense: 55,
-      troops: 7000, generals: ['gogugwon'] },
+      troops: 6000, generals: ['gogugwon'] },
 
     // ===== 백제 (서남부) =====
     { id: 'hanseong_b', name: '위례성', kingdom: 'baekje', province: '한강 남안',
-      x: 170, y: 305, population: 85000, agriculture: 58, commerce: 60, defense: 60,
-      troops: 8000, generals: ['geunchogo'] },
+      x: 170, y: 305, population: 85000, agriculture: 58, commerce: 60, defense: 62,
+      troops: 9000, generals: ['geunchogo'] },
     { id: 'ungjin', name: '웅진성', kingdom: 'baekje', province: '금강',
-      x: 155, y: 375, population: 75000, agriculture: 55, commerce: 62, defense: 68,
-      troops: 7500, generals: ['seong'] },
+      x: 155, y: 375, population: 75000, agriculture: 55, commerce: 62, defense: 70,
+      troops: 8000, generals: ['seong'] },
     { id: 'sabi', name: '사비성', kingdom: 'baekje', province: '부여',
-      x: 140, y: 420, population: 95000, agriculture: 60, commerce: 70, defense: 65,
-      troops: 9000, generals: ['uija'] },
+      x: 140, y: 420, population: 95000, agriculture: 60, commerce: 70, defense: 68,
+      troops: 10000, generals: ['uija'] },
     { id: 'iksan', name: '익산', kingdom: 'baekje', province: '금마저',
-      x: 150, y: 465, population: 60000, agriculture: 62, commerce: 55, defense: 50,
-      troops: 6000, generals: ['gyebaek'] },
+      x: 150, y: 465, population: 60000, agriculture: 62, commerce: 55, defense: 52,
+      troops: 7000, generals: ['gyebaek'] },
 
     // ===== 신라 (동남부) =====
     { id: 'geumseong', name: '금성', kingdom: 'silla', province: '경주',
-      x: 285, y: 430, population: 110000, agriculture: 55, commerce: 60, defense: 75,
-      troops: 11000, generals: ['kimyusin', 'seondeok'] },
+      x: 285, y: 430, population: 110000, agriculture: 55, commerce: 60, defense: 78,
+      troops: 12000, generals: ['kimyusin', 'seondeok'] },
     { id: 'seorabeol', name: '서라벌', kingdom: 'silla', province: '경주 외곽',
       x: 300, y: 470, population: 80000, agriculture: 58, commerce: 65, defense: 62,
       troops: 7000, generals: ['munmu'] },
@@ -43,8 +43,8 @@
       x: 245, y: 380, population: 65000, agriculture: 60, commerce: 50, defense: 55,
       troops: 6500, generals: ['isabu'] },
     { id: 'gaya', name: '금관가야', kingdom: 'silla', province: '김해',
-      x: 275, y: 520, population: 55000, agriculture: 52, commerce: 58, defense: 48,
-      troops: 5000, generals: ['kimchunchu'] },
+      x: 275, y: 520, population: 55000, agriculture: 52, commerce: 58, defense: 50,
+      troops: 6000, generals: ['kimchunchu'] },
 
     // ===== 중립(쟁탈) 지역 =====
     { id: 'daeya', name: '대야성', kingdom: 'neutral', province: '합천',
@@ -59,22 +59,26 @@
 
     // ===== 당나라 (대륙 서북방) =====
     { id: 'changan', name: '장안', kingdom: 'tang', province: '관중',
-      x: 60, y: 90, population: 200000, agriculture: 70, commerce: 85, defense: 82,
-      troops: 16000, generals: ['taizong', 'ijeok'] },
+      x: 60, y: 90, population: 200000, agriculture: 70, commerce: 85, defense: 85,
+      troops: 18000, generals: ['taizong', 'ijeok'] },
     { id: 'luoyang', name: '낙양', kingdom: 'tang', province: '중원',
-      x: 110, y: 150, population: 160000, agriculture: 68, commerce: 80, defense: 72,
-      troops: 13000, generals: ['sujeongbang'] },
+      x: 110, y: 150, population: 160000, agriculture: 68, commerce: 80, defense: 74,
+      troops: 15000, generals: ['sujeongbang'] },
     { id: 'ansi', name: '안시', kingdom: 'tang', province: '요서 전선',
-      x: 90, y: 235, population: 70000, agriculture: 50, commerce: 48, defense: 78,
-      troops: 10000, generals: ['seolingwi'] },
+      x: 90, y: 235, population: 70000, agriculture: 50, commerce: 48, defense: 80,
+      troops: 12000, generals: ['seolingwi'] },
 
     // ===== 왜 (동남 해상 열도) =====
     { id: 'asuka', name: '아스카', kingdom: 'wa', province: '야마토',
-      x: 560, y: 470, population: 90000, agriculture: 58, commerce: 60, defense: 60,
-      troops: 8000, generals: ['waking'] },
+      x: 560, y: 470, population: 95000, agriculture: 60, commerce: 62, defense: 78,
+      troops: 13000, generals: ['waking'] },
     { id: 'naniwa', name: '나니와', kingdom: 'wa', province: '해안',
-      x: 500, y: 420, population: 70000, agriculture: 52, commerce: 66, defense: 55,
-      troops: 7000, generals: ['abenohirafu', 'echinotakutsu'] }
+      x: 500, y: 420, population: 80000, agriculture: 58, commerce: 74, defense: 72,
+      troops: 10000, generals: ['abenohirafu'] },
+    // 쓰시마(대마도) — 열도에서 한반도로 향하는 전진 수군 기지
+    { id: 'tsushima', name: '쓰시마', kingdom: 'wa', province: '대마도',
+      x: 400, y: 500, population: 45000, agriculture: 42, commerce: 58, defense: 70,
+      troops: 8000, generals: ['echinotakutsu'] }
   ];
 
   global.SAMGUK = global.SAMGUK || {};

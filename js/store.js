@@ -698,7 +698,7 @@
     baekje:   { infantry: 0.45, cavalry: 0.25, archer: 0.30 },
     silla:    { infantry: 0.50, cavalry: 0.25, archer: 0.25 }, // 보병·방어
     tang:     { infantry: 0.40, cavalry: 0.40, archer: 0.20 }, // 대군·균형
-    wa:       { infantry: 0.40, cavalry: 0.15, archer: 0.45 }, // 궁·수군
+    wa:       { infantry: 0.48, cavalry: 0.12, archer: 0.40 }, // 상륙 보병·궁 수군(기병에 강함)
     neutral:  { infantry: 0.50, cavalry: 0.25, archer: 0.25 }
   };
 
@@ -713,8 +713,8 @@
   // 보병 → 기병 유리 / 기병 → 궁병 유리 / 궁병 → 보병 유리
   function unitAdvantage(atkType, defType) {
     var wins = { infantry: 'cavalry', cavalry: 'archer', archer: 'infantry' };
-    if (wins[atkType] === defType) return 1.3;   // 상성 우위
-    if (wins[defType] === atkType) return 0.8;   // 상성 열세
+    if (wins[atkType] === defType) return 1.18;  // 상성 우위 (과도하지 않게)
+    if (wins[defType] === atkType) return 0.88;  // 상성 열세
     return 1.0;
   }
 
@@ -875,8 +875,8 @@
     // 전투 중 병종 사용으로 지휘관 기능 숙련 상승 (플레이어 무장 위주)
     if (atkG) gainSkillExp(atkG, unitSkillKey[mainUnit(b.atkComp)], 6, true);
 
-    // 지형(수비 치안) + 공성 보정
-    var terrain = 1 + (to.defense / 400) + (b.isSiege ? 0.12 : 0);
+    // 지형(수비 치안) + 공성 보정 — 치안이 높은 성은 함락이 훨씬 어렵다
+    var terrain = 1 + (to.defense / 250) + (b.isSiege ? 0.18 : 0);
 
     // 병종 상성 (주력 병종 기준, 학익진이면 상성 효과 증폭)
     var atkMain = mainUnit(b.atkComp), defMain = mainUnit(b.defComp);
@@ -1433,6 +1433,10 @@
     return false;                                      // 장수제(미독립)은 AI가 통치
   }
 
+  // AI 역량은 모든 세력에 동일하게 적용(세력 균형은 시작 자산·지리로 결정).
+  // 값 1.0 기준으로 모집·공격 적극성을 조정한다.
+  function aiCompetence(k) { return 1.0; }
+
   // ---- AI ----
   function runAI() {
     AI_KINGDOMS.forEach(function (k) {
@@ -1441,32 +1445,41 @@
       var myCities = citiesOf(k);
       var income = kingdomIncome(k);
       state.gold[k] += income;
+      var comp = aiCompetence(k);
 
-      // 내정: 무작위 도시 개발
-      var target = myCities[Math.floor(Math.random() * myCities.length)];
-      var pick = Math.random();
-      if (state.gold[k] >= 300) {
-        state.gold[k] -= 300;
-        if (pick < 0.33) target.agriculture = Math.min(100, target.agriculture + 5);
-        else if (pick < 0.66) target.commerce = Math.min(100, target.commerce + 5);
-        else target.defense = Math.min(100, target.defense + 5);
-      }
-      // 병력 모집
-      if (state.gold[k] >= 400 && target.troops < 8000) {
-        state.gold[k] -= 400;
-        target.troops += 1200;
-      }
-
-      // 공격 판단: 인접 국가(플레이어 포함) 중 병력 우위가 큰 대상 공격
-      var enemies = S.KINGDOM_ORDER.filter(function (o) {
-        return o !== k && o !== 'neutral' && !state.diplomacy[k][o].alliance && citiesOf(o).length > 0;
+      // 내정·모집: 보유한 모든 성을 매 턴 운영 (예산 범위 내에서)
+      myCities.forEach(function (city) {
+        // 개발: 금 여유가 있으면 가장 낮은 능력치를 끌어올림
+        if (state.gold[k] >= 300 && Math.random() < 0.7) {
+          state.gold[k] -= 300;
+          var lowest = Math.min(city.agriculture, city.commerce, city.defense);
+          if (city.agriculture === lowest) city.agriculture = Math.min(statCap(city.buildings.irrigation), city.agriculture + 5);
+          else if (city.commerce === lowest) city.commerce = Math.min(statCap(city.buildings.market), city.commerce + 5);
+          else city.defense = Math.min(statCap(city.buildings.fort), city.defense + 5);
+        }
+        // 시설 증축: 능력치가 상한에 닿았고 금이 넉넉하면
+        if (state.gold[k] >= 1200 && Math.random() < 0.15) {
+          var bk = ['irrigation', 'market', 'fort'][Math.floor(Math.random() * 3)];
+          if ((city.buildings[bk] || 1) < 3) { state.gold[k] -= 800; city.buildings[bk]++; }
+        }
+        // 모집: 인구·민심 비례 상한까지 (유능할수록 더 적극적으로)
+        var recruitCap = Math.round((6000 + (city.population || 60000) / 12 + (city.popularity || 60) * 30) * comp);
+        if (state.gold[k] >= 400 && city.troops < recruitCap) {
+          state.gold[k] -= 400;
+          city.troops += Math.round(1500 * comp);
+        }
       });
-      // 중립 도시도 공격 후보
+
+      // 공격 판단: 비동맹 적국 중, 유능할수록 더 낮은 병력 우위에서도 공격
+      var enemies = S.KINGDOM_ORDER.filter(function (o) {
+        return o !== k && !state.diplomacy[k][o].alliance && citiesOf(o).length > 0;
+      });
       var myTroops = kingdomTroops(k);
+      var atkThreshold = 1.7 - (comp - 1.0) * 1.5; // comp1.2→1.4, comp0.96→1.76
       enemies.forEach(function (en) {
         var enTroops = kingdomTroops(en);
         var atWar = state.diplomacy[k][en].war;
-        if ((atWar || Math.random() < 0.1) && myTroops > enTroops * 1.5) {
+        if ((atWar || Math.random() < 0.15 * comp) && myTroops > enTroops * atkThreshold) {
           aiAttack(k, en);
         }
       });
@@ -1477,7 +1490,8 @@
       }
 
       // 외교: 약하면 플레이어에게 우호 시도
-      if (myTroops < kingdomTroops(state.playerKingdom) * 0.7 && Math.random() < 0.3) {
+      if (state.playerKingdom && state.diplomacy[k][state.playerKingdom] &&
+          myTroops < kingdomTroops(state.playerKingdom) * 0.7 && Math.random() < 0.3) {
         var rel = state.diplomacy[k][state.playerKingdom];
         rel.relation = Math.min(100, rel.relation + 8);
         state.diplomacy[state.playerKingdom][k].relation = rel.relation;
@@ -1504,7 +1518,7 @@
     var defGen = bestGeneral(targetCity);
     var atkPow = (atkGen ? effStat(atkGen, 'command') + effStat(atkGen, 'force') : 120) / 2;
     var defPow = (defGen ? effStat(defGen, 'command') + effStat(defGen, 'force') : 110) / 2;
-    var terrain = 1 + targetCity.defense / 400;
+    var terrain = 1 + targetCity.defense / 250;
 
     // 병종 상성 반영
     var adv = unitAdvantage(mainUnit(composition(attacker)), mainUnit(composition(targetCity.kingdom)));

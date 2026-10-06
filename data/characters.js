@@ -224,7 +224,7 @@
       id: 'waking',
       name: '왜왕',
       kingdom: 'wa',
-      command: 80, force: 72, intellect: 82, politics: 88,
+      command: 86, force: 80, intellect: 84, politics: 88,
       loyalty: 100,
       bio: '열도의 왜를 다스리는 군주. 백제와 오랜 우호를 맺어 백제 부흥을 위해 대규모 수군을 바다 건너로 파견하였다.'
     },
