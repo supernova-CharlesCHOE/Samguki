@@ -74,14 +74,16 @@
       items = [
         { name: '근무', overlay: 'officer', icon: '📋' },
         { name: '무장', overlay: 'generals', icon: '⚔' },
-        { name: '연표', overlay: 'log', icon: '📜' }
+        { name: '연표', overlay: 'log', icon: '📜' },
+        { name: '저장', overlay: 'saveload', icon: '💾' }
       ];
     } else {
       items = [
         { name: '무장', overlay: 'generals', icon: '⚔' },
         { name: '등용', overlay: 'recruit', icon: '🤝' },
         { name: '외교', overlay: 'diplomacy', icon: '🕊' },
-        { name: '연표', overlay: 'log', icon: '📜' }
+        { name: '연표', overlay: 'log', icon: '📜' },
+        { name: '저장', overlay: 'saveload', icon: '💾' }
       ];
     }
     return el('div.side-panel', null, [
@@ -221,6 +223,7 @@
     else if (state.overlay === 'debate') body = S.Overlays.debate(state);
     else if (state.overlay === 'recruit') body = S.Overlays.recruit(state);
     else if (state.overlay === 'officer') body = S.Overlays.officer(state);
+    else if (state.overlay === 'saveload') body = S.Overlays.saveload(state);
     else if (state.overlay === 'log') body = renderFullLog(state);
     else return null;
 

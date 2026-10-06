@@ -1516,7 +1516,9 @@
       });
       var myTroops = kingdomTroops(k);
       var attacksThisTurn = 0;
-      var maxAttacks = state.aiLevel === 'hell' ? 2 : 1;
+      // 초반 유예(ramp): 1~15턴에 걸쳐 공격 적극성이 서서히 올라가 개막 블리츠를 막는다
+      var ramp = Math.min(1, state.turn / 15);
+      var maxAttacks = (state.aiLevel === 'hell' && state.turn > 10) ? 2 : 1;
       // 선두 세력(특히 플레이어가 선두면) 집중 견제
       enemies.sort(function (a, b) {
         var pa = (a === lead ? -1000 : 0) + (a === state.playerKingdom ? -500 : 0);
@@ -1527,10 +1529,11 @@
         if (attacksThisTurn >= maxAttacks) return;
         var enTroops = kingdomTroops(en);
         var atWar = state.diplomacy[k][en].war;
-        // 선두/플레이어 견제: gangUp 확률로 열세여도 공조 공격
+        // 선두/플레이어 견제: gangUp 확률로 열세여도 공조 공격 (초반엔 ramp로 완화)
         var isTarget = (en === lead || en === state.playerKingdom);
-        var threshold = isTarget ? cfg.atkThreshold * 0.9 : cfg.atkThreshold;
-        var willAttack = atWar || Math.random() < cfg.aggr || (isTarget && Math.random() < cfg.gangUp);
+        // 초반엔 공격 임계치를 높여(=더 큰 우위를 요구) 블리츠 방지
+        var threshold = (isTarget ? cfg.atkThreshold * 0.9 : cfg.atkThreshold) + (1 - ramp) * 0.5;
+        var willAttack = atWar || Math.random() < cfg.aggr * ramp || (isTarget && Math.random() < cfg.gangUp * ramp);
         if (willAttack && myTroops > enTroops * threshold) {
           aiAttack(k, en);
           attacksThisTurn++;
@@ -1802,6 +1805,9 @@
     // 승패 판정
     checkEndConditions();
 
+    // 자동 저장 (게임 진행 중일 때만)
+    if (state.phase === 'game') writeSave('auto');
+
     notify();
   }
 
@@ -1846,6 +1852,131 @@
     return max;
   }
 
+  // ====================================================================
+  //  세이브 / 로드 (localStorage 기반)
+  //  - 슬롯: 'auto'(자동저장) + '1'~'3'(수동)
+  //  - 상태는 함수 없이 순수 데이터이므로 JSON 직렬화로 저장/복원
+  //  - 사생활 보호 모드/용량 초과 등에 대비해 모든 접근을 try/catch로 감쌈
+  // ====================================================================
+  var SAVE_VERSION = 1;
+  var SAVE_PREFIX = 'samguk.save.';
+  var SAVE_SLOTS = ['1', '2', '3'];
+
+  function storageAvailable() {
+    try {
+      var t = '__samguk_test__';
+      window.localStorage.setItem(t, '1');
+      window.localStorage.removeItem(t);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // 저장 메타(슬롯 목록 UI에 표시할 요약) 생성
+  function saveMeta(st) {
+    var kname = st.playerKingdom && S.KINGDOMS[st.playerKingdom] ? S.KINGDOMS[st.playerKingdom].name : '-';
+    var sub;
+    if (st.playMode === 'officer') {
+      var g = null;
+      for (var i = 0; i < st.generals.length; i++) if (st.generals[i].id === st.playerGeneralId) { g = st.generals[i]; break; }
+      var rank = (OFFICER_RANKS[st.rankIndex] || OFFICER_RANKS[0]).name;
+      sub = '장수 · ' + (g ? g.name : '?') + ' (' + rank + ')';
+    } else {
+      sub = '군주 · ' + (st.independent ? '독립' : kname);
+    }
+    return {
+      kingdom: kname,
+      playMode: st.playMode,
+      aiLevel: st.aiLevel,
+      sub: sub,
+      year: st.year,
+      turn: st.turn,
+      phase: st.phase,
+      savedAt: Date.now()
+    };
+  }
+
+  // 실제 저장 (내부용). 성공 여부 반환
+  function writeSave(slot) {
+    if (!storageAvailable() || !state) return false;
+    try {
+      var payload = { version: SAVE_VERSION, meta: saveMeta(state), state: state };
+      window.localStorage.setItem(SAVE_PREFIX + slot, JSON.stringify(payload));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // 수동 저장 (토스트 피드백 포함)
+  function saveGame(slot) {
+    if (!state || state.phase !== 'game') { toast('게임 중에만 저장할 수 있습니다.'); notify(); return false; }
+    if (!storageAvailable()) { toast('이 브라우저에서는 저장할 수 없습니다.'); notify(); return false; }
+    var ok = writeSave(slot);
+    toast(ok ? ('슬롯 ' + slot + '에 저장했습니다.') : '저장에 실패했습니다.');
+    notify();
+    return ok;
+  }
+
+  // 슬롯 메타 조회 (없으면 null)
+  function getSaveMeta(slot) {
+    if (!storageAvailable()) return null;
+    try {
+      var raw = window.localStorage.getItem(SAVE_PREFIX + slot);
+      if (!raw) return null;
+      var payload = JSON.parse(raw);
+      if (!payload || !payload.meta) return null;
+      return payload.meta;
+    } catch (e) { return null; }
+  }
+
+  // 전체 슬롯 목록 (auto 포함)
+  function listSaves() {
+    var out = {};
+    ['auto'].concat(SAVE_SLOTS).forEach(function (slot) { out[slot] = getSaveMeta(slot); });
+    return out;
+  }
+
+  function hasAnySave() {
+    var l = listSaves();
+    return Object.keys(l).some(function (s) { return !!l[s]; });
+  }
+
+  // 저장된 상태의 유효성 최소 검증
+  function validState(s) {
+    return s && typeof s === 'object' && Array.isArray(s.cities) && Array.isArray(s.generals) &&
+      s.gold && typeof s.turn === 'number';
+  }
+
+  // 로드: 저장된 상태로 교체하고 전체 재렌더
+  function loadGame(slot) {
+    if (!storageAvailable()) { toast('이 브라우저에서는 불러올 수 없습니다.'); notify(); return false; }
+    try {
+      var raw = window.localStorage.getItem(SAVE_PREFIX + slot);
+      if (!raw) { toast('저장된 게임이 없습니다.'); notify(); return false; }
+      var payload = JSON.parse(raw);
+      if (!payload || !validState(payload.state)) { toast('저장 파일이 손상되었습니다.'); notify(); return false; }
+      // 구버전 보정: 누락 필드를 초기값으로 채움
+      var fresh = createInitialState();
+      var loaded = payload.state;
+      Object.keys(fresh).forEach(function (key) {
+        if (!(key in loaded)) loaded[key] = fresh[key];
+      });
+      // 로드 직후엔 오버레이/임시 UI 상태 정리
+      loaded.overlay = null;
+      loaded.battle = null; loaded.duel = null; loaded.debate = null;
+      loaded.pendingEvent = null; loaded.pendingReport = null;
+      loaded.message = null; loaded.selectedCityId = null;
+      state = loaded;
+      toast('슬롯 ' + slot + '에서 불러왔습니다.');
+      notify();
+      return true;
+    } catch (e) { toast('불러오기에 실패했습니다.'); notify(); return false; }
+  }
+
+  function deleteSave(slot) {
+    if (!storageAvailable()) return false;
+    try { window.localStorage.removeItem(SAVE_PREFIX + slot); notify(); return true; }
+    catch (e) { return false; }
+  }
+
   // ---- 공개 API ----
   global.SAMGUK.store = {
     subscribe: subscribe,
@@ -1866,6 +1997,15 @@
     devEfficiency: devEfficiency,
     TAX_TABLE: TAX_TABLE,
     mostCities: mostCities,
+    // 세이브 / 로드
+    saveGame: saveGame,
+    loadGame: loadGame,
+    listSaves: listSaves,
+    getSaveMeta: getSaveMeta,
+    hasAnySave: hasAnySave,
+    deleteSave: deleteSave,
+    storageAvailable: storageAvailable,
+    SAVE_SLOTS: SAVE_SLOTS,
     // 액션
     newGame: newGame,
     goTitle: goTitle,

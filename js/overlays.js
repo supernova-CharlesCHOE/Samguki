@@ -704,6 +704,66 @@
     ]);
   }
 
+  // ============ 세이브 / 로드 ============
+  // mode: 'full'(저장+불러오기, 게임 중) | 'load'(불러오기 전용, 타이틀)
+  function saveload(state) {
+    var saves = store.listSaves();
+    var inGame = state.phase === 'game';
+    var canStore = store.storageAvailable();
+
+    function fmtTime(ts) {
+      if (!ts) return '';
+      try {
+        var d = new Date(ts);
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      } catch (e) { return ''; }
+    }
+    function levelLabel(lv) { return { normal: '보통', hard: '어려움', hell: '지옥' }[lv] || '보통'; }
+
+    function slotRow(slot, isAuto) {
+      var meta = saves[slot];
+      var label = isAuto ? '자동 저장' : ('슬롯 ' + slot);
+      var info;
+      if (meta) {
+        info = el('div.slot-info', null, [
+          el('div.slot-title', { text: label }),
+          el('div.slot-sub', { text: meta.sub + ' · 난이도 ' + levelLabel(meta.aiLevel) }),
+          el('div.slot-meta', { text: meta.year + '년 ' + meta.turn + '턴 · ' + fmtTime(meta.savedAt) })
+        ]);
+      } else {
+        info = el('div.slot-info', null, [
+          el('div.slot-title', { text: label }),
+          el('div.slot-sub.empty', { text: '— 비어 있음 —' })
+        ]);
+      }
+      var actions = [];
+      // 저장 (수동 슬롯, 게임 중에만)
+      if (!isAuto && inGame) {
+        actions.push(el('button.btn.btn-primary', { text: '저장', onClick: function () { store.saveGame(slot); } }));
+      }
+      // 불러오기 (메타 있을 때)
+      if (meta) {
+        actions.push(el('button.btn', { text: '불러오기', onClick: function () { store.loadGame(slot); } }));
+        actions.push(el('button.btn.btn-danger', { text: '삭제', onClick: function () { store.deleteSave(slot); } }));
+      }
+      return el('div.slot-row' + (meta ? '' : '.empty'), null, [
+        info,
+        el('div.slot-actions', null, actions)
+      ]);
+    }
+
+    var rows = [slotRow('auto', true)].concat(store.SAVE_SLOTS.map(function (s) { return slotRow(s, false); }));
+
+    return el('div.overlay-panel.saveload-panel', null, [
+      head(inGame ? '저장 / 불러오기' : '이어하기'),
+      el('div.saveload-body', null,
+        canStore ? rows : [el('p.saveload-warn', { text: '이 브라우저(사생활 보호 모드 등)에서는 저장 기능을 쓸 수 없습니다.' })]
+      ),
+      el('div.saveload-note', { text: '자동 저장은 매 턴 종료 시 갱신됩니다. 저장은 이 브라우저에만 보관됩니다.' })
+    ]);
+  }
+
   global.SAMGUK.Overlays = {
     internal: internal,
     diplomacy: diplomacy,
@@ -712,6 +772,7 @@
     duel: duel,
     debate: debate,
     recruit: recruit,
-    officer: officer
+    officer: officer,
+    saveload: saveload
   };
 })(window);

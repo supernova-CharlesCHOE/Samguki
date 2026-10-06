@@ -25,7 +25,8 @@
           }),
           el('button.btn.btn-ghost.btn-lg', {
             text: '이어하기',
-            disabled: true
+            disabled: !store.hasAnySave(),
+            onClick: function () { store.openOverlay('saveload'); }
           })
         ]),
         el('div.title-footer', { text: '4~7세기 한반도 · 턴제 전략 시뮬레이션' })
