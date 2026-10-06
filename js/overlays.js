@@ -252,6 +252,21 @@
   }
 
   // ============ 전투 ============
+  var UNIT_LABEL = { infantry: '보', cavalry: '기', archer: '궁' };
+  var UNIT_FULL = { infantry: '보병', cavalry: '기병', archer: '궁병' };
+
+  function compBar(comp) {
+    // 병종 구성 막대 (보/기/궁)
+    var seg = function (t, color) {
+      return el('div.comp-seg', { style: { width: Math.round(comp[t] * 100) + '%', background: color }, title: UNIT_FULL[t] }, [
+        el('span.comp-seg-lbl', { text: UNIT_LABEL[t] })
+      ]);
+    };
+    return el('div.comp-bar', null, [
+      seg('infantry', '#8a6d3b'), seg('cavalry', '#a0522d'), seg('archer', '#4a7a4a')
+    ]);
+  }
+
   function battle(state) {
     var b = state.battle;
     if (!b) return el('div.overlay-panel', null, [head('전투'), el('p', { text: '진행중인 전투가 없습니다.' })]);
@@ -260,17 +275,27 @@
     var atkGen = b.atkGen ? store.generalById(b.atkGen) : null;
     var defGen = b.defGen ? store.generalById(b.defGen) : null;
 
-    function sideCard(cls, title, gen, troops, max, kingdom) {
+    function sideCard(cls, title, gen, troops, max, morale, kingdom, comp, support, formKey) {
       var pct = max > 0 ? Math.max(0, (troops / max) * 100) : 0;
-      return el('div.battle-side.' + cls, { style: { '--kcolor': kingdom === 'neutral' ? '#5a5346' : K(kingdom).color } }, [
-        el('div.battle-side-title', { text: title }),
-        gen ? UI.avatar(gen.name, kingdom === 'neutral' ? '#7a7060' : K(kingdom).colorLight, 56) : UI.avatar('병', '#555', 56),
+      var kcolor = kingdom === 'neutral' ? '#5a5346' : K(kingdom).color;
+      var light = kingdom === 'neutral' ? '#7a7060' : K(kingdom).colorLight;
+      var moraleColor = morale >= 60 ? '#6ab04c' : (morale >= 30 ? '#e8c85a' : '#c0392b');
+      var form = store.FORMATIONS[formKey];
+      var supportNames = (support || []).map(function (id) { var g = store.generalById(id); return g ? g.name : ''; }).filter(Boolean);
+      return el('div.battle-side.' + cls, { style: { '--kcolor': kcolor } }, [
+        el('div.battle-side-title', { text: title + (form ? ' · ' + form.name + '진' : '') }),
+        gen ? UI.avatar(gen.name, light, 54) : UI.avatar('병', '#555', 54),
         el('div.battle-gen-name', { text: gen ? gen.name : '무장 없음' }),
-        gen ? el('div.battle-gen-stat', { text: '통' + gen.command + ' 무' + gen.force }) : null,
-        el('div.battle-troop-bar', null, [
-          el('div.battle-troop-fill', { style: { width: pct + '%' } })
-        ]),
-        el('div.battle-troop-num', { text: troops.toLocaleString() + ' 명' })
+        gen ? el('div.battle-gen-stat', { text: '통' + store.effStat(gen, 'command') + ' 무' + store.effStat(gen, 'force') + ' 지' + store.effStat(gen, 'intellect') }) : null,
+        supportNames.length ? el('div.battle-support', { text: '지원: ' + supportNames.join(', ') }) : null,
+        // 병력
+        el('div.battle-bar-label', { text: '병력 ' + troops.toLocaleString() }),
+        el('div.battle-troop-bar', null, [el('div.battle-troop-fill', { style: { width: pct + '%' } })]),
+        // 사기
+        el('div.battle-bar-label', { text: '사기 ' + morale }),
+        el('div.battle-morale-bar', null, [el('div.battle-morale-fill', { style: { width: morale + '%', background: moraleColor } })]),
+        // 병종 구성
+        comp ? compBar(comp) : null
       ]);
     }
 
@@ -286,23 +311,44 @@
       ]);
     } else {
       var canDuel = b.atkGen && b.defGen;
-      controls = el('div.battle-controls', null, [
-        el('button.btn.btn-danger', { text: '총공격', onClick: function () { store.battleAction('attack'); } }),
-        el('button.btn', { text: '방어', onClick: function () { store.battleAction('defend'); } }),
-        el('button.btn.btn-primary', { text: '필살전법', onClick: function () { store.battleAction('special'); } }),
-        canDuel ? el('button.btn.btn-duel', { text: '일기토', onClick: function () { store.startDuelFromBattle(); } }) : null,
-        el('button.btn.btn-ghost', { text: '퇴각', onClick: function () { store.battleAction('retreat'); } })
+      var tacticReady = b.atkTacticCd <= 0;
+      // 진형 선택 버튼
+      var formBtns = Object.keys(store.FORMATIONS).map(function (fk) {
+        var f = store.FORMATIONS[fk];
+        return el('button.btn.form-btn' + (b.atkFormation === fk ? '.active' : ''), {
+          text: f.name,
+          title: f.desc,
+          onClick: function () { store.setBattleFormation(fk); }
+        });
+      });
+      controls = el('div.battle-controls-wrap', null, [
+        el('div.battle-form-row', null, [el('span.battle-form-label', { text: '진형' })].concat(formBtns)),
+        el('div.battle-controls', null, [
+          el('button.btn.btn-danger', { text: '총공격', onClick: function () { store.battleAction('attack'); } }),
+          el('button.btn', { text: '방어', onClick: function () { store.battleAction('defend'); } }),
+          el('button.btn.btn-primary', { text: '필살전법', onClick: function () { store.battleAction('special'); } }),
+          el('button.btn.btn-tactic', { text: tacticReady ? '전법·계략' : '전법(' + b.atkTacticCd + ')', disabled: !tacticReady, onClick: function () { store.battleAction('tactic'); } }),
+          canDuel ? el('button.btn.btn-duel', { text: '일기토', onClick: function () { store.startDuelFromBattle(); } }) : null,
+          el('button.btn.btn-ghost', { text: '퇴각', onClick: function () { store.battleAction('retreat'); } })
+        ])
       ]);
     }
 
+    // 병종 상성 안내 (주력 기준)
+    var atkMain = store.mainUnit(b.atkComp), defMain = store.mainUnit(b.defComp);
+    var adv = store.unitAdvantage(atkMain, defMain);
+    var advText = adv > 1 ? '아군 ' + UNIT_FULL[atkMain] + '이(가) 적 ' + UNIT_FULL[defMain] + '에 상성 우위' :
+      (adv < 1 ? '아군 ' + UNIT_FULL[atkMain] + '이(가) 적 ' + UNIT_FULL[defMain] + '에 상성 열세' : '병종 상성 대등');
+
     return el('div.overlay-panel.battle-panel', null, [
       el('div.overlay-head', null, [
-        el('h2', { text: '전투 · ' + from.name + ' → ' + to.name + ' (제' + b.round + '라운드)' })
+        el('h2', { text: (b.isSiege ? '공성전' : '야전') + ' · ' + from.name + ' → ' + to.name + ' (제' + b.round + '라운드)' })
       ]),
+      el('div.battle-advice', { text: advText }),
       el('div.battle-arena', null, [
-        sideCard('atk', '공격군', atkGen, b.atkTroops, b.atkMax, b.attackerKingdom),
+        sideCard('atk', '공격군', atkGen, b.atkTroops, b.atkMax, b.atkMorale, b.attackerKingdom, b.atkComp, b.atkSupport, b.atkFormation),
         field,
-        sideCard('def', '수비군', defGen, b.defTroops, b.defMax, b.defenderKingdom)
+        sideCard('def', '수비군', defGen, b.defTroops, b.defMax, b.defMorale, b.defenderKingdom, b.defComp, b.defSupport, b.defFormation)
       ]),
       controls,
       el('div.battle-log', null, b.log.slice(0, 8).map(function (line) {
@@ -311,7 +357,7 @@
     ]);
   }
 
-  // 6x4 전장 그리드 (시각 표현)
+  // 전장 시각화: 병종별 색 유닛, 사기에 따른 흔들림/투명도
   function renderBattleField(b) {
     var SVGNS = 'http://www.w3.org/2000/svg';
     var s = document.createElementNS(SVGNS, 'svg');
@@ -319,28 +365,48 @@
     s.setAttribute('class', 'battle-field');
     var atkColor = b.attackerKingdom === 'neutral' ? '#7a7060' : K(b.attackerKingdom).colorLight;
     var defColor = b.defenderKingdom === 'neutral' ? '#7a7060' : K(b.defenderKingdom).colorLight;
+    var unitGlyph = { infantry: '步', cavalry: '騎', archer: '弓' };
+
+    // 구성 비율로 8칸을 병종에 배분
+    function unitTypes(comp) {
+      var arr = [];
+      ['infantry', 'cavalry', 'archer'].forEach(function (t) {
+        var n = Math.round(comp[t] * 8);
+        for (var k = 0; k < n; k++) arr.push(t);
+      });
+      while (arr.length < 8) arr.push('infantry');
+      return arr.slice(0, 8);
+    }
+    var atkTypes = unitTypes(b.atkComp), defTypes = unitTypes(b.defComp);
 
     var html = '';
+    // 전장 바닥(공성전이면 성벽 느낌)
+    html += '<rect x="0" y="0" width="240" height="160" fill="#1a1710"/>';
     for (var r = 0; r < 4; r++) {
       for (var c = 0; c < 6; c++) {
-        var x = c * 40, y = r * 40;
-        html += '<rect x="' + x + '" y="' + y + '" width="40" height="40" fill="none" stroke="#3a3524" stroke-width="1"/>';
+        html += '<rect x="' + (c * 40) + '" y="' + (r * 40) + '" width="40" height="40" fill="none" stroke="#302b1c" stroke-width="1"/>';
       }
     }
-    // 공격 유닛(좌측 2열), 수비 유닛(우측 2열)
+    if (b.isSiege) {
+      // 수비측 성벽
+      html += '<rect x="196" y="0" width="6" height="160" fill="#6b5a3a" opacity="0.8"/>';
+      html += '<rect x="202" y="0" width="38" height="160" fill="#2a2416" opacity="0.5"/>';
+    }
+
     var atkUnits = Math.min(8, Math.ceil(b.atkTroops / (b.atkMax / 8 || 1)));
     var defUnits = Math.min(8, Math.ceil(b.defTroops / (b.defMax / 8 || 1)));
+    var atkOp = 0.45 + (b.atkMorale / 100) * 0.55; // 사기 낮으면 흐릿
+    var defOp = 0.45 + (b.defMorale / 100) * 0.55;
     var i;
     for (i = 0; i < atkUnits; i++) {
-      var ax = (i % 2) * 40 + 20, ay = Math.floor(i / 2) * 40 + 20;
-      html += '<circle cx="' + ax + '" cy="' + ay + '" r="12" fill="' + atkColor + '"/>';
-      html += '<text x="' + ax + '" y="' + (ay + 4) + '" text-anchor="middle" font-size="12" fill="#111">攻</text>';
+      var ax = (i % 2) * 40 + 22, ay = Math.floor(i / 2) * 40 + 20;
+      html += '<circle cx="' + ax + '" cy="' + ay + '" r="12" fill="' + atkColor + '" opacity="' + atkOp.toFixed(2) + '" stroke="#120d06" stroke-width="1"/>';
+      html += '<text x="' + ax + '" y="' + (ay + 4) + '" text-anchor="middle" font-size="12" fill="#120d06">' + unitGlyph[atkTypes[i]] + '</text>';
     }
     for (i = 0; i < defUnits; i++) {
-      var dx = 200 - (i % 2) * 40 + 20 - 40, dy = Math.floor(i / 2) * 40 + 20;
-      dx = 240 - ((i % 2) * 40 + 20);
-      html += '<circle cx="' + dx + '" cy="' + dy + '" r="12" fill="' + defColor + '"/>';
-      html += '<text x="' + dx + '" y="' + (dy + 4) + '" text-anchor="middle" font-size="12" fill="#111">守</text>';
+      var dx = 240 - ((i % 2) * 40 + 22), dy = Math.floor(i / 2) * 40 + 20;
+      html += '<circle cx="' + dx + '" cy="' + dy + '" r="12" fill="' + defColor + '" opacity="' + defOp.toFixed(2) + '" stroke="#120d06" stroke-width="1"/>';
+      html += '<text x="' + dx + '" y="' + (dy + 4) + '" text-anchor="middle" font-size="12" fill="#120d06">' + unitGlyph[defTypes[i]] + '</text>';
     }
     s.innerHTML = html;
     return s;

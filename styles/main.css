@@ -495,3 +495,39 @@ body {
     radial-gradient(circle at 15% 10%, rgba(201,162,39,0.05), transparent 40%),
     radial-gradient(circle at 85% 90%, rgba(139,26,26,0.05), transparent 40%);
 }
+
+/* =====================================================================
+   전투 강화 (영웅입지전·토탈워 삼국 참고): 사기·병종·진형·전법
+   ===================================================================== */
+
+/* 상성 안내 */
+.battle-advice {
+  text-align: center; font-size: 13px; color: var(--gold-light);
+  padding: 6px 20px; letter-spacing: 1px;
+}
+
+/* 병력/사기 막대 라벨 */
+.battle-bar-label { font-size: 11px; color: var(--parchment-dark); align-self: flex-start; margin-top: 4px; }
+.battle-morale-bar { width: 100%; height: 8px; background: #2a2114; border-radius: 4px; overflow: hidden; }
+.battle-morale-fill { height: 100%; transition: width 0.4s, background 0.4s; }
+
+/* 지원 무장 */
+.battle-support { font-size: 11px; color: var(--gold); }
+
+/* 병종 구성 막대 */
+.comp-bar { display: flex; width: 100%; height: 16px; border-radius: 4px; overflow: hidden; margin-top: 6px; border: 1px solid var(--border); }
+.comp-seg { display: flex; align-items: center; justify-content: center; min-width: 14px; }
+.comp-seg-lbl { font-size: 10px; color: #1a1206; font-weight: bold; }
+
+/* 진형 선택 */
+.battle-controls-wrap { display: flex; flex-direction: column; gap: 8px; padding: 0 20px 12px; }
+.battle-form-row { display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.battle-form-label { font-size: 12px; color: var(--parchment-dark); }
+.form-btn { padding: 5px 14px; font-size: 13px; }
+.form-btn.active { background: linear-gradient(var(--gold), #9c7a10); color: #1a1206; border-color: var(--gold-light); font-weight: bold; }
+
+/* 전법 버튼 */
+.btn-tactic { background: linear-gradient(#2d6b8a, #184a63); border-color: #4a90b0; color: #e8f4ff; font-weight: bold; }
+
+/* 전장 유닛 사기 흔들림(낮을 때) 효과를 위한 미세 애니메이션 훅 */
+.battle-field { background: #120d06; border-radius: 6px; }

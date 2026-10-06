@@ -389,6 +389,53 @@
     notify();
   }
 
+  // ====================================================================
+  //  전투 시스템 (영웅입지전·토탈워 삼국 참고)
+  //  - 병종(兵種) 상성: 보병>기병>궁병>보병 (가위바위보)
+  //  - 진형(陣形): 어린/학익/방원 — 공격·방어·측면 보정
+  //  - 사기(士氣)와 궤주(潰走): 병력 0 이전에 사기가 무너지면 패주
+  //  - 전법/계략: 지력 기반 성공, 화공·혼란 등
+  //  - 일기토: 전투 중 무장 단기로 사기 교란
+  // ====================================================================
+
+  // 병종: 보병(infantry)/기병(cavalry)/궁병(archer)
+  // 세력 특성에 따른 기본 병종 구성 비율
+  var KINGDOM_COMPOSITION = {
+    goguryeo: { infantry: 0.35, cavalry: 0.50, archer: 0.15 }, // 기병 강국
+    baekje:   { infantry: 0.45, cavalry: 0.25, archer: 0.30 },
+    silla:    { infantry: 0.50, cavalry: 0.25, archer: 0.25 }, // 보병·방어
+    tang:     { infantry: 0.40, cavalry: 0.40, archer: 0.20 }, // 대군·균형
+    wa:       { infantry: 0.40, cavalry: 0.15, archer: 0.45 }, // 궁·수군
+    neutral:  { infantry: 0.50, cavalry: 0.25, archer: 0.25 }
+  };
+
+  // 진형 정의: atk(공격 배율) / def(피해 경감) / flank(측면/병종 보정 가중)
+  var FORMATIONS = {
+    eorin:  { name: '어린', hanja: '魚鱗', atk: 1.25, def: 0.95, flank: 1.0,  desc: '중앙 돌파에 특화. 공격력↑, 방어 약간↓' },
+    hagik:  { name: '학익', hanja: '鶴翼', atk: 1.0,  def: 1.0,  flank: 1.35, desc: '양익 포위. 병종 상성·측면 효과↑' },
+    bangwon:{ name: '방원', hanja: '方圓', atk: 0.85, def: 1.30, flank: 0.85, desc: '원형 방어진. 피해 경감↑, 공격↓' }
+  };
+
+  // 병종 상성 배율: 공격 병종이 상대 병종을 상대로 받는 보정
+  // 보병 → 기병 유리 / 기병 → 궁병 유리 / 궁병 → 보병 유리
+  function unitAdvantage(atkType, defType) {
+    var wins = { infantry: 'cavalry', cavalry: 'archer', archer: 'infantry' };
+    if (wins[atkType] === defType) return 1.3;   // 상성 우위
+    if (wins[defType] === atkType) return 0.8;   // 상성 열세
+    return 1.0;
+  }
+
+  function composition(kingdom) {
+    return KINGDOM_COMPOSITION[kingdom] || KINGDOM_COMPOSITION.neutral;
+  }
+
+  // 군대의 "주력 병종"(가장 비율이 큰 병종) — 상성 계산 대표값
+  function mainUnit(comp) {
+    var best = 'infantry', bv = -1;
+    ['infantry', 'cavalry', 'archer'].forEach(function (t) { if (comp[t] > bv) { bv = comp[t]; best = t; } });
+    return best;
+  }
+
   // ---- 전투 ----
   function bestGeneral(city) {
     var best = null;
@@ -399,6 +446,12 @@
     return best;
   }
 
+  // 성에 주둔한 '지원 무장'(주장 외 추가 무장) — 토탈워의 다수 무장 참전 개념
+  function supportGenerals(city, mainGenId) {
+    return (city.generals || []).filter(function (gid) { return gid !== mainGenId; })
+      .map(function (gid) { return generalById(gid); }).filter(Boolean);
+  }
+
   function startBattle(fromCityId, toCityId) {
     var from = cityById(fromCityId);
     var to = cityById(toCityId);
@@ -407,6 +460,14 @@
     var defGen = bestGeneral(to);
     var deploy = Math.min(from.troops - 500, Math.floor(from.troops * 0.7));
     if (deploy < 500) { toast('출병할 병력이 부족합니다.'); notify(); return; }
+
+    // 지원 무장 수 → 소폭 보너스 (각 +4% 공격, 최대 2명)
+    var atkSupport = supportGenerals(from, atkGen ? atkGen.id : null).slice(0, 2);
+    var defSupport = supportGenerals(to, defGen ? defGen.id : null).slice(0, 2);
+
+    // 공성전 여부: 방어측이 성에 틀어박힌 상태 → 수비 보정 큼
+    var isSiege = to.kingdom !== 'neutral';
+
     state.battle = {
       fromId: fromCityId,
       toId: toCityId,
@@ -414,12 +475,25 @@
       defenderKingdom: to.kingdom,
       atkGen: atkGen ? atkGen.id : null,
       defGen: defGen ? defGen.id : null,
+      atkSupport: atkSupport.map(function (g) { return g.id; }),
+      defSupport: defSupport.map(function (g) { return g.id; }),
       atkTroops: deploy,
       defTroops: to.troops,
       atkMax: deploy,
       defMax: to.troops,
+      // 사기(0~100)
+      atkMorale: 100,
+      defMorale: 100,
+      // 진형(기본: 공격=어린, 수비=방원)
+      atkFormation: 'eorin',
+      defFormation: isSiege ? 'bangwon' : 'eorin',
+      atkComp: composition(from.kingdom),
+      defComp: composition(to.kingdom),
+      isSiege: isSiege,
+      // 전법 재사용 대기(지력 기반 1회성 느낌 — 쿨다운)
+      atkTacticCd: 0,
       round: 1,
-      log: ['전투 개시! ' + from.name + ' → ' + to.name],
+      log: ['전투 개시! ' + from.name + ' → ' + to.name + (isSiege ? ' (공성전)' : ' (야전)')],
       over: false,
       result: null
     };
@@ -432,16 +506,18 @@
     return g ? effStat(g, key) : fallback;
   }
 
+  // 지원 무장들의 평균 보정(공격력/방어력에 소폭 반영)
+  function supportBonus(ids) {
+    if (!ids || !ids.length) return 1.0;
+    return 1 + ids.length * 0.05; // 1명당 +5%
+  }
+
   function battleAction(action) {
     var b = state.battle;
     if (!b || b.over) return;
     var to = cityById(b.toId);
 
-    var atkPow = genStat(b.atkGen, 'command', 60) * 0.5 + genStat(b.atkGen, 'force', 60) * 0.5;
-    var defPow = genStat(b.defGen, 'command', 55) * 0.5 + genStat(b.defGen, 'force', 55) * 0.5;
-    var terrain = 1 + (to.defense / 400); // 방어측 지형 보정
-
-    var rand = function () { return 0.8 + Math.random() * 0.4; };
+    var rand = function () { return 0.82 + Math.random() * 0.36; };
 
     if (action === 'retreat') {
       b.over = true; b.result = 'retreat';
@@ -451,36 +527,122 @@
       return;
     }
 
+    // 진형 변경 명령은 피해 없이 라운드를 소비하지 않고 즉시 반영
+    if (action && action.indexOf('form:') === 0) {
+      var f = action.split(':')[1];
+      if (FORMATIONS[f]) {
+        b.atkFormation = f;
+        b.log.unshift('진형을 ' + FORMATIONS[f].name + '(' + FORMATIONS[f].hanja + ')으로 바꾸었다.');
+      }
+      notify();
+      return;
+    }
+
+    // 전법/계략: 지력 기반 성공. 성공 시 적 사기 급감 + 병력 피해
+    if (action === 'tactic') {
+      if (b.atkTacticCd > 0) { toast('전법을 다시 쓰려면 ' + b.atkTacticCd + '라운드 기다려야 합니다.'); notify(); return; }
+      var intel = genStat(b.atkGen, 'intellect', 55);
+      var defIntel = genStat(b.defGen, 'intellect', 55);
+      var successChance = 0.35 + (intel - defIntel) / 200; // 지력차가 성패를 가른다
+      b.atkTacticCd = 3;
+      if (Math.random() < Math.max(0.1, Math.min(0.9, successChance))) {
+        var moraleHit = 18 + Math.round(intel / 5);
+        var trHit = Math.round(b.defTroops * 0.08 * (intel / 60));
+        b.defMorale = Math.max(0, b.defMorale - moraleHit);
+        b.defTroops = Math.max(0, b.defTroops - trHit);
+        b.log.unshift('제' + b.round + '라운드 [전법 성공!] 적을 교란 — 적 사기 -' + moraleHit + ', 병력 -' + trHit);
+      } else {
+        b.atkMorale = Math.max(0, b.atkMorale - 8);
+        b.log.unshift('제' + b.round + '라운드 [전법 실패] 계략이 간파당해 아군 사기 -8');
+      }
+      b.round++;
+      resolveRoundEnd(b, to);
+      notify();
+      return;
+    }
+
+    // 일반 교전: 총공격 / 방어 / 필살전법
+    var atkForm = FORMATIONS[b.atkFormation] || FORMATIONS.eorin;
+    var defForm = FORMATIONS[b.defFormation] || FORMATIONS.bangwon;
+
+    var atkPow = (genStat(b.atkGen, 'command', 60) * 0.5 + genStat(b.atkGen, 'force', 60) * 0.5) * supportBonus(b.atkSupport);
+    var defPow = (genStat(b.defGen, 'command', 55) * 0.5 + genStat(b.defGen, 'force', 55) * 0.5) * supportBonus(b.defSupport);
+
+    // 지형(수비 치안) + 공성 보정
+    var terrain = 1 + (to.defense / 400) + (b.isSiege ? 0.12 : 0);
+
+    // 병종 상성 (주력 병종 기준, 학익진이면 상성 효과 증폭)
+    var atkMain = mainUnit(b.atkComp), defMain = mainUnit(b.defComp);
+    var adv = unitAdvantage(atkMain, defMain);
+    adv = 1 + (adv - 1) * atkForm.flank; // 학익이면 상성 체감 커짐
+    var advDef = unitAdvantage(defMain, atkMain);
+    advDef = 1 + (advDef - 1) * defForm.flank;
+
+    // 사기 보정: 사기가 낮으면 가하는 피해 감소
+    var atkMoraleMult = 0.5 + (b.atkMorale / 100) * 0.5;
+    var defMoraleMult = 0.5 + (b.defMorale / 100) * 0.5;
+
     var atkMult = action === 'attack' ? 1.2 : (action === 'special' ? 1.5 : 0.7);
     var defTakeMult = action === 'defend' ? 0.6 : 1.0;
 
-    // 공격군이 방어군에 주는 피해
-    var dmgToDef = Math.round((b.atkTroops * 0.10) * (atkPow / 60) * atkMult * rand());
-    // 방어군이 공격군에 주는 피해 (지형/특수 반영)
-    var dmgToAtk = Math.round((b.defTroops * 0.09) * (defPow / 60) * terrain * defTakeMult * rand());
+    // 공격군 피해량 (진형 공격·상성·사기 반영)
+    var dmgToDef = Math.round(
+      (b.atkTroops * 0.10) * (atkPow / 60) * atkMult * atkForm.atk * adv * atkMoraleMult * rand() / defForm.def
+    );
+    // 방어군 피해량
+    var dmgToAtk = Math.round(
+      (b.defTroops * 0.09) * (defPow / 60) * terrain * defTakeMult * defForm.atk * advDef * defMoraleMult * rand() / atkForm.def
+    );
 
     b.defTroops = Math.max(0, b.defTroops - dmgToDef);
     b.atkTroops = Math.max(0, b.atkTroops - dmgToAtk);
 
-    var actName = { attack: '총공격', defend: '방어 태세', special: '필살 전법' }[action] || action;
-    b.log.unshift('제' + b.round + '라운드 [' + actName + '] · 적 -' + dmgToDef + ', 아군 -' + dmgToAtk);
-    b.round++;
+    // 사기 변동: 큰 피해를 입으면 사기 하락, 가하면 소폭 상승
+    b.defMorale = Math.max(0, b.defMorale - Math.round(dmgToDef / Math.max(1, b.defMax) * 180) - (action === 'special' ? 6 : 0));
+    b.atkMorale = Math.max(0, b.atkMorale - Math.round(dmgToAtk / Math.max(1, b.atkMax) * 180) + (action === 'defend' ? 3 : 0));
+    b.atkMorale = Math.min(100, b.atkMorale);
+    b.defMorale = Math.min(100, b.defMorale);
 
+    var actName = { attack: '총공격', defend: '방어 태세', special: '필살 전법' }[action] || action;
+    b.log.unshift('제' + b.round + '라운드 [' + actName + '·' + atkForm.name + '] · 적 -' + dmgToDef + '(사기 ' + b.defMorale + '), 아군 -' + dmgToAtk + '(사기 ' + b.atkMorale + ')');
+    b.round++;
+    if (b.atkTacticCd > 0) b.atkTacticCd--;
+
+    resolveRoundEnd(b, to);
+    notify();
+  }
+
+  // 라운드 종료 판정: 전멸 또는 궤주(사기 붕괴) 또는 장기화
+  function resolveRoundEnd(b, to) {
+    // 궤주 판정: 사기 0 이하이고 병력이 상대보다 열세면 패주
     if (b.defTroops <= 0) {
       b.over = true; b.result = 'win';
-      b.log.unshift('적의 수비군이 전멸했다! 성을 함락한다.');
+      b.log.unshift('적 수비군이 전멸했다! 성을 함락한다.');
       applyBattleResult();
     } else if (b.atkTroops <= 0) {
       b.over = true; b.result = 'lose';
       b.log.unshift('아군이 전멸했다. 공격 실패.');
       applyBattleResult();
-    } else if (b.round > 12) {
-      b.over = true; b.result = b.atkTroops > b.defTroops ? 'win' : 'lose';
+    } else if (b.defMorale <= 0) {
+      b.over = true; b.result = 'win';
+      b.log.unshift('적의 사기가 무너져 궤주한다! ' + to.name + '을(를) 함락한다.');
+      applyBattleResult();
+    } else if (b.atkMorale <= 0) {
+      b.over = true; b.result = 'lose';
+      b.log.unshift('아군의 사기가 무너져 패주했다. 공격 실패.');
+      applyBattleResult();
+    } else if (b.round > 14) {
+      // 장기화: 병력·사기 종합 우세 판정
+      var atkScore = b.atkTroops + b.atkMorale * 50;
+      var defScore = b.defTroops + b.defMorale * 50;
+      b.over = true; b.result = atkScore > defScore ? 'win' : 'lose';
       b.log.unshift('전투가 장기화되어 종료되었다.');
       applyBattleResult();
     }
-    notify();
   }
+
+  // 진형 변경(공개 액션용 래퍼)
+  function setBattleFormation(f) { battleAction('form:' + f); }
 
   function applyBattleResult() {
     var b = state.battle;
@@ -490,20 +652,24 @@
     if (b.result === 'win') {
       // 성 점령: 소유권 이전, 잔여 병력 이동
       var conquerer = b.attackerKingdom;
-      // 방어측 무장은 흩어짐(현 위치 무장 제거 후 정복측이 접수하지 않음: 중립화)
       to.kingdom = conquerer;
       to.troops = Math.max(500, b.atkTroops);
-      // 공격 무장을 새 성으로 이동
-      if (b.atkGen) {
+      // 공격 주장 + 지원 무장을 새 성으로 이동
+      var movers = [b.atkGen].concat(b.atkSupport || []).filter(Boolean);
+      if (movers.length) {
         state.cities.forEach(function (c) {
-          var idx = c.generals.indexOf(b.atkGen);
-          if (idx >= 0) c.generals.splice(idx, 1);
+          movers.forEach(function (gid) {
+            var idx = c.generals.indexOf(gid);
+            if (idx >= 0) c.generals.splice(idx, 1);
+          });
         });
-        to.generals = [b.atkGen];
+        to.generals = movers;
+      } else {
+        to.generals = [];
       }
       // 남은 병력은 원 성에 반영
       from.troops = Math.max(0, from.troops - b.atkMax);
-      pushLog(S.KINGDOMS[conquerer].name + '이 ' + to.name + '을(를) 점령했다.');
+      pushLog(S.KINGDOMS[conquerer].name + '이 ' + to.name + '을(를) 함락했다.');
     } else {
       // 실패/퇴각: 손실 반영
       from.troops = Math.max(0, from.troops - (b.atkMax - b.atkTroops));
@@ -665,22 +831,22 @@
     if (b && d && b.duelPending) {
       b.duelPending = false;
       if (d.result === 'win') {
-        // 승리: 적 수비군 사기 저하(병력 -12%), 아군 사기 상승 로그
-        var cut = Math.round(b.defTroops * 0.12);
+        // 승리: 적 사기 급락 + 병력 소폭 이탈
+        var cut = Math.round(b.defTroops * 0.08);
         b.defTroops = Math.max(0, b.defTroops - cut);
-        b.log.unshift('일기토 승리! 적 수비군의 사기가 떨어져 병력이 ' + cut + ' 이탈했다.');
+        b.defMorale = Math.max(0, b.defMorale - 25);
+        b.atkMorale = Math.min(100, b.atkMorale + 10);
+        b.log.unshift('일기토 승리! 적장이 꺾여 적 사기 -25, 병력 -' + cut);
       } else if (d.result === 'lose') {
-        var cutA = Math.round(b.atkTroops * 0.10);
+        var cutA = Math.round(b.atkTroops * 0.06);
         b.atkTroops = Math.max(0, b.atkTroops - cutA);
-        b.log.unshift('일기토 패배로 아군의 사기가 흔들려 병력이 ' + cutA + ' 이탈했다.');
-        if (b.atkTroops <= 0) {
-          b.over = true; b.result = 'lose';
-          b.log.unshift('아군이 무너졌다. 공격 실패.');
-          applyBattleResult();
-        }
+        b.atkMorale = Math.max(0, b.atkMorale - 22);
+        b.log.unshift('일기토 패배로 아군 사기 -22, 병력 -' + cutA);
       }
       state.duel = null;
       state.overlay = 'battle';
+      // 일기토 결과로 궤주가 일어날 수 있으니 종료 판정
+      if (!b.over) resolveRoundEnd(b, cityById(b.toId));
       notify();
       return;
     }
@@ -993,11 +1159,14 @@
     var deploy = Math.floor(from.troops * 0.6);
     var atkGen = bestGeneral(from);
     var defGen = bestGeneral(targetCity);
-    var atkPow = (atkGen ? atkGen.command + atkGen.force : 120) / 2;
-    var defPow = (defGen ? defGen.command + defGen.force : 110) / 2;
+    var atkPow = (atkGen ? effStat(atkGen, 'command') + effStat(atkGen, 'force') : 120) / 2;
+    var defPow = (defGen ? effStat(defGen, 'command') + effStat(defGen, 'force') : 110) / 2;
     var terrain = 1 + targetCity.defense / 400;
 
-    var atkScore = deploy * (atkPow / 60);
+    // 병종 상성 반영
+    var adv = unitAdvantage(mainUnit(composition(attacker)), mainUnit(composition(targetCity.kingdom)));
+
+    var atkScore = deploy * (atkPow / 60) * adv;
     var defScore = targetCity.troops * (defPow / 60) * terrain;
 
     if (atkScore > defScore * 1.05) {
@@ -1265,7 +1434,12 @@
     assignGeneral: assignGeneral,
     startBattle: startBattle,
     battleAction: battleAction,
+    setBattleFormation: setBattleFormation,
     endBattle: endBattle,
+    FORMATIONS: FORMATIONS,
+    composition: composition,
+    mainUnit: mainUnit,
+    unitAdvantage: unitAdvantage,
     effStat: effStat,
     trainGeneral: trainGeneral,
     startDuel: startDuel,
