@@ -11,14 +11,35 @@
 
   function deepCopyCities(cities) {
     return cities.map(function (c) {
+      // 초기 군량/민심은 농업·치안을 바탕으로 산정 (노부나가의 야망의 兵糧/民心 개념)
+      var rice = c.rice != null ? c.rice : Math.round(c.population / 10 + c.agriculture * 60);
       return {
         id: c.id, name: c.name, kingdom: c.kingdom, province: c.province,
         x: c.x, y: c.y, population: c.population,
         agriculture: c.agriculture, commerce: c.commerce, defense: c.defense,
-        troops: c.troops, generals: c.generals.slice()
+        troops: c.troops, generals: c.generals.slice(),
+        // ── 내정 확장 (노부나가의 야망 참고) ──
+        rice: rice,                                   // 군량(兵糧) 비축량
+        popularity: c.popularity != null ? c.popularity : 60,  // 민심(民心) 0~100
+        taxRate: c.taxRate != null ? c.taxRate : 'normal',     // 세율 low|normal|high
+        // 시설 레벨: 관개(농)/시장(상)/성채(치안) — 레벨이 능력치 상한과 세수 배율을 올린다
+        buildings: c.buildings ? {
+          irrigation: c.buildings.irrigation || 1,
+          market: c.buildings.market || 1,
+          fort: c.buildings.fort || 1
+        } : { irrigation: 1, market: 1, fort: 1 }
       };
     });
   }
+
+  // 시설 레벨에 따른 능력치 상한 (레벨당 +15, 기본 상한 40 → 최대 100)
+  function statCap(level) { return Math.min(100, 40 + (level || 1) * 15); }
+  // 세율에 따른 세수 배율과 민심 영향
+  var TAX_TABLE = {
+    low:    { mult: 0.75, moodDelta: +3, label: '경세(가벼움)' },
+    normal: { mult: 1.0,  moodDelta: 0,  label: '보통' },
+    high:   { mult: 1.3,  moodDelta: -5, label: '중세(무거움)' }
+  };
 
   function deepCopyGenerals(gens) {
     return gens.map(function (g) {
@@ -119,10 +140,32 @@
   function kingdomTroops(kingdom) {
     return citiesOf(kingdom).reduce(function (sum, c) { return sum + c.troops; }, 0);
   }
+  // 성 한 곳의 세수(금). 상업·농업 기반 + 시장 레벨 배율 + 민심/세율 보정
+  function cityIncome(c) {
+    var base = c.commerce * 6 + c.agriculture * 4;
+    var marketMult = 1 + ((c.buildings && c.buildings.market ? c.buildings.market : 1) - 1) * 0.15;
+    var taxMult = (TAX_TABLE[c.taxRate] || TAX_TABLE.normal).mult;
+    var moodMult = 0.6 + (c.popularity / 100) * 0.6; // 민심 0→0.6, 100→1.2
+    return Math.round(base * marketMult * taxMult * moodMult);
+  }
   function kingdomIncome(kingdom) {
-    // 상업 + 농업 기반 세수
+    return citiesOf(kingdom).reduce(function (sum, c) { return sum + cityIncome(c); }, 0);
+  }
+  // 성 한 곳의 군량 수확량(가을 수확 개념을 매 턴 균등화). 농업·관개 레벨 기반
+  function cityRiceYield(c) {
+    var irr = (c.buildings && c.buildings.irrigation ? c.buildings.irrigation : 1);
+    var moodMult = 0.7 + (c.popularity / 100) * 0.5;
+    return Math.round(c.agriculture * (14 + irr * 4) * moodMult);
+  }
+  // 성의 병력이 매 턴 소비하는 군량 (1천 병당 소비)
+  function cityRiceUpkeep(c) { return Math.round(c.troops * 0.06); }
+  function kingdomRice(kingdom) {
+    return citiesOf(kingdom).reduce(function (sum, c) { return sum + (c.rice || 0); }, 0);
+  }
+  // 세력 전체의 군량 수지(수확 - 소비)
+  function kingdomRiceBalance(kingdom) {
     return citiesOf(kingdom).reduce(function (sum, c) {
-      return sum + Math.round(c.commerce * 6 + c.agriculture * 4);
+      return sum + cityRiceYield(c) - cityRiceUpkeep(c);
     }, 0);
   }
   function pushLog(text) {
@@ -183,18 +226,96 @@
   function openOverlay(name) { state.overlay = name; notify(); }
   function closeOverlay() { state.overlay = null; state.battle = null; notify(); }
 
-  // 내정: 개발
+  // 성 담당관(태수)의 정치력 → 개발 효율. 무장이 있으면 가장 높은 정치력을 반영
+  function governorPolitics(c) {
+    var best = 0;
+    (c.generals || []).forEach(function (gid) {
+      var g = generalById(gid);
+      if (g) { var p = effStat(g, 'politics'); if (p > best) best = p; }
+    });
+    return best; // 0이면 담당관 없음
+  }
+  // 개발 효율 배율: 담당관 정치 70 기준 1.0, 100이면 1.3, 담당관 없으면 0.8
+  function devEfficiency(c) {
+    var p = governorPolitics(c);
+    if (p === 0) return 0.8;
+    return 0.7 + (p / 100) * 0.6;
+  }
+
+  // 내정: 개발 (농업/상업/치안은 시설 레벨 상한까지, 담당관 정치로 효율 보정)
   function developCity(cityId, kind) {
     var c = cityById(cityId);
     if (!c) return;
-    var cost = kind === 'troops' ? 200 : 300;
-    if (state.gold[state.playerKingdom] < cost) { toast('금이 부족합니다.'); notify(); return; }
-    state.gold[state.playerKingdom] -= cost;
-    if (kind === 'agriculture') c.agriculture = Math.min(100, c.agriculture + 6);
-    else if (kind === 'commerce') c.commerce = Math.min(100, c.commerce + 6);
-    else if (kind === 'defense') c.defense = Math.min(100, c.defense + 6);
-    else if (kind === 'troops') c.troops += 1500;
-    toast('명령을 완료했습니다.');
+    var pk = state.playerKingdom;
+
+    if (kind === 'troops') {
+      // 병사 모집: 금 + 군량 소모. 민심이 높을수록 모집이 수월
+      var goldCost = 200, riceCost = 300;
+      if (state.gold[pk] < goldCost) { toast('금이 부족합니다.'); notify(); return; }
+      if ((c.rice || 0) < riceCost) { toast('군량이 부족합니다.'); notify(); return; }
+      state.gold[pk] -= goldCost;
+      c.rice -= riceCost;
+      var recruited = Math.round(1200 + (c.popularity / 100) * 800);
+      c.troops += recruited;
+      c.popularity = Math.max(0, c.popularity - 3); // 징집은 민심을 약간 깎는다
+      toast(c.name + '에서 ' + recruited.toLocaleString() + '명을 모집했습니다. (군량 -' + riceCost + ')');
+      pushLog(c.name + '에서 병사 ' + recruited.toLocaleString() + '명을 모집했다.');
+      notify();
+      return;
+    }
+
+    if (kind === 'relief') {
+      // 선정(민심 안정): 금을 풀어 백성을 구휼하고 민심을 올린다
+      var reliefCost = 250;
+      if (state.gold[pk] < reliefCost) { toast('금이 부족합니다.'); notify(); return; }
+      state.gold[pk] -= reliefCost;
+      c.popularity = Math.min(100, c.popularity + 8);
+      toast(c.name + '에 선정을 베풀어 민심이 올랐습니다. (민심 +8)');
+      notify();
+      return;
+    }
+
+    // 농업/상업/치안 개발
+    var cost = 300;
+    if (state.gold[pk] < cost) { toast('금이 부족합니다.'); notify(); return; }
+    var statKey = kind; // agriculture|commerce|defense
+    var buildKey = kind === 'agriculture' ? 'irrigation' : (kind === 'commerce' ? 'market' : 'fort');
+    var cap = statCap(c.buildings[buildKey]);
+    if (c[statKey] >= cap) {
+      toast('시설 레벨 상한(' + cap + ')에 도달했습니다. 시설을 증축하세요.');
+      notify();
+      return;
+    }
+    state.gold[pk] -= cost;
+    var gain = Math.round(6 * devEfficiency(c));
+    c[statKey] = Math.min(cap, c[statKey] + gain);
+    toast(c.name + ' 개발 완료 (+' + gain + ', 상한 ' + cap + ')');
+    notify();
+  }
+
+  // 시설 증축: 능력치 상한과 세수/수확 배율을 올린다 (레벨 1→3)
+  function upgradeBuilding(cityId, buildKey) {
+    var c = cityById(cityId);
+    if (!c) return;
+    var pk = state.playerKingdom;
+    var lvl = c.buildings[buildKey] || 1;
+    if (lvl >= 3) { toast('이미 최고 레벨입니다.'); notify(); return; }
+    var cost = lvl === 1 ? 800 : 1600; // 2레벨 800, 3레벨 1600
+    if (state.gold[pk] < cost) { toast('금이 부족합니다. (' + cost + '금 필요)'); notify(); return; }
+    state.gold[pk] -= cost;
+    c.buildings[buildKey] = lvl + 1;
+    var names = { irrigation: '관개 시설', market: '시장', fort: '성채' };
+    toast(c.name + '의 ' + names[buildKey] + '을(를) ' + (lvl + 1) + '레벨로 증축했습니다.');
+    pushLog(c.name + '의 ' + names[buildKey] + '이(가) ' + (lvl + 1) + '레벨이 되었다.');
+    notify();
+  }
+
+  // 세율 조정: low|normal|high
+  function setTaxRate(cityId, rate) {
+    var c = cityById(cityId);
+    if (!c || !TAX_TABLE[rate]) return;
+    c.taxRate = rate;
+    toast(c.name + '의 세율을 ' + TAX_TABLE[rate].label + '(으)로 정했습니다.');
     notify();
   }
 
@@ -907,23 +1028,30 @@
 
   // ---- 재해(災害) 시스템 ----
   // 레퍼런스의 6종 재해(지진/홍수/가뭄/황충/역병/폭설)를 한반도 배경으로 구현.
+  // 재해는 관개(치수) 레벨로 수해·가뭄 피해가 경감되고, 군량 비축에도 타격을 준다.
   var DISASTERS = [
     { id: 'quake', name: '지진', apply: function (c) { c.defense = Math.max(20, c.defense - 12); c.population = Math.round(c.population * 0.96); }, desc: '성벽이 무너지고 백성이 다쳤다. (치안 -12)' },
-    { id: 'flood', name: '홍수', apply: function (c) { c.agriculture = Math.max(15, c.agriculture - 12); }, desc: '강이 범람하여 논밭이 잠겼다. (농업 -12)' },
-    { id: 'drought', name: '가뭄', apply: function (c) { c.agriculture = Math.max(15, c.agriculture - 10); c.commerce = Math.max(15, c.commerce - 4); }, desc: '오랜 가뭄으로 곡식이 말랐다. (농업 -10, 상업 -4)' },
-    { id: 'locust', name: '황충', apply: function (c) { c.agriculture = Math.max(15, c.agriculture - 14); }, desc: '메뚜기 떼가 들판을 덮쳤다. (농업 -14)' },
-    { id: 'plague', name: '역병', apply: function (c) { c.troops = Math.round(c.troops * 0.85); c.population = Math.round(c.population * 0.94); }, desc: '역병이 돌아 병사와 백성이 스러졌다. (병력 -15%)' },
+    { id: 'flood', name: '홍수', water: true, apply: function (c, m) { var d = Math.round(12 * m); c.agriculture = Math.max(15, c.agriculture - d); c.rice = Math.round((c.rice || 0) * 0.85); }, desc: '강이 범람하여 논밭이 잠겼다. (농업·군량 감소)' },
+    { id: 'drought', name: '가뭄', water: true, apply: function (c, m) { var d = Math.round(10 * m); c.agriculture = Math.max(15, c.agriculture - d); c.commerce = Math.max(15, c.commerce - 4); }, desc: '오랜 가뭄으로 곡식이 말랐다. (농업·상업 감소)' },
+    { id: 'locust', name: '황충', apply: function (c) { c.agriculture = Math.max(15, c.agriculture - 14); c.rice = Math.round((c.rice || 0) * 0.9); }, desc: '메뚜기 떼가 들판을 덮쳤다. (농업·군량 감소)' },
+    { id: 'plague', name: '역병', apply: function (c) { c.troops = Math.round(c.troops * 0.85); c.population = Math.round(c.population * 0.94); c.popularity = Math.max(0, c.popularity - 8); }, desc: '역병이 돌아 병사와 백성이 스러졌다. (병력 -15%, 민심 -8)' },
     { id: 'snow', name: '폭설', apply: function (c) { c.commerce = Math.max(15, c.commerce - 12); c.troops = Math.round(c.troops * 0.95); }, desc: '기록적인 폭설로 교역이 끊겼다. (상업 -12, 병력 -5%)' }
   ];
 
   function checkDisasters() {
-    // 매 턴 12% 확률로 재해 발생, 무작위 도시 1곳 강타
-    if (Math.random() >= 0.12) return null;
+    // 재해 기본 확률 11%, 플레이어 성 평균 민심이 낮으면 소폭 상승
+    var mine = citiesOf(state.playerKingdom);
+    var avgMood = mine.length ? mine.reduce(function (s, c) { return s + c.popularity; }, 0) / mine.length : 60;
+    var chance = 0.11 + Math.max(0, (50 - avgMood)) * 0.0015;
+    if (Math.random() >= chance) return null;
     var targets = state.cities.filter(function (c) { return c.kingdom !== 'neutral'; });
     if (!targets.length) return null;
     var city = targets[Math.floor(Math.random() * targets.length)];
     var d = DISASTERS[Math.floor(Math.random() * DISASTERS.length)];
-    d.apply(city);
+    // 수해/가뭄은 관개(치수) 레벨이 높을수록 피해 경감 (레벨 1→1.0배, 3→0.5배)
+    var sevMult = 1;
+    if (d.water) { var irr = (city.buildings && city.buildings.irrigation) || 1; sevMult = Math.max(0.4, 1 - (irr - 1) * 0.25); }
+    d.apply(city, sevMult);
     var text = city.name + '에 ' + d.name + '! ' + d.desc;
     pushLog('[재해] ' + text);
     return {
@@ -995,17 +1123,36 @@
     });
   }
 
+  // 매 턴 모든 성의 내정 처리: 군량 수확/소비, 민심 변동, 병력 회복
+  function processDomestic() {
+    var starveReports = [];
+    state.cities.forEach(function (c) {
+      if (c.kingdom === 'neutral') return;
+      // 군량: 수확 - 병력 소비
+      var net = cityRiceYield(c) - cityRiceUpkeep(c);
+      c.rice = Math.max(0, (c.rice || 0) + net);
+      // 군량 고갈 시 병력 이탈(아사/탈영)
+      if (c.rice <= 0 && cityRiceUpkeep(c) > 0) {
+        var loss = Math.round(c.troops * 0.08);
+        c.troops = Math.max(0, c.troops - loss);
+        c.popularity = Math.max(0, c.popularity - 4);
+        if (loss > 0) starveReports.push({ city: c, loss: loss });
+      }
+      // 민심: 세율에 따라 서서히 변동 + 100 수렴
+      var moodDelta = (TAX_TABLE[c.taxRate] || TAX_TABLE.normal).moodDelta;
+      c.popularity = Math.max(0, Math.min(100, c.popularity + moodDelta + 1));
+      // 병력 자연 회복(농업 + 민심 기반)
+      c.troops += Math.round(c.agriculture * 2 * (0.6 + c.popularity / 100 * 0.6));
+    });
+    return starveReports;
+  }
+
   // ---- 턴 진행 ----
   function nextTurn() {
-    // 플레이어 수입
+    // 플레이어 수입(금)
     state.gold[state.playerKingdom] += kingdomIncome(state.playerKingdom);
-    // 병력 자연 회복(농업 기반)
-    state.cities.forEach(function (c) {
-      if (c.kingdom !== 'neutral') c.troops += Math.round(c.agriculture * 2);
-    });
-
-    // AI
-    runAI();
+    // 전 세력 내정 처리(군량/민심/병력)
+    var starve = processDomestic();
 
     // 턴/연도 진행
     state.turn += 1;
@@ -1017,10 +1164,17 @@
     var disaster = checkDisasters();
     checkDefections();
 
-    // 턴 결과 보고(재해/합종)를 팝업으로 모아 표시 (이벤트가 없을 때만; 이벤트 우선)
+    // 턴 결과 보고(재해/합종/군량)를 팝업으로 모아 표시 (이벤트가 없을 때만; 이벤트 우선)
     var reportLines = [];
     if (alliance) reportLines.push({ title: '합종연횡 · ' + alliance.topName + ' 견제', text: alliance.msg + (alliance.isPlayerTop ? ' 그대가 표적이 되었다!' : '') });
     if (disaster) reportLines.push({ title: '재해 · ' + disaster.name + ' (' + disaster.cityName + ')', text: disaster.kingdomName + '의 ' + disaster.cityName + ' — ' + disaster.desc });
+    // 플레이어 성의 군량 고갈만 보고 (타국은 생략)
+    (starve || []).forEach(function (s) {
+      if (s.city.kingdom === state.playerKingdom) {
+        reportLines.push({ title: '군량 고갈 · ' + s.city.name, text: '군량이 바닥나 병사 ' + s.loss.toLocaleString() + '명이 이탈했다. 농업·관개를 늘리거나 병력을 줄이시오.' });
+        pushLog('[군량] ' + s.city.name + '의 군량이 고갈되어 병사 ' + s.loss.toLocaleString() + '명이 이탈했다.');
+      }
+    });
 
     // 이벤트 체크
     var firedEvent = checkAndTriggerEvent();
@@ -1082,6 +1236,15 @@
     cityById: cityById,
     kingdomTroops: kingdomTroops,
     kingdomIncome: kingdomIncome,
+    cityIncome: cityIncome,
+    cityRiceYield: cityRiceYield,
+    cityRiceUpkeep: cityRiceUpkeep,
+    kingdomRice: kingdomRice,
+    kingdomRiceBalance: kingdomRiceBalance,
+    statCap: statCap,
+    governorPolitics: governorPolitics,
+    devEfficiency: devEfficiency,
+    TAX_TABLE: TAX_TABLE,
     mostCities: mostCities,
     // 액션
     newGame: newGame,
@@ -1093,6 +1256,8 @@
     openOverlay: openOverlay,
     closeOverlay: closeOverlay,
     developCity: developCity,
+    upgradeBuilding: upgradeBuilding,
+    setTaxRate: setTaxRate,
     envoy: envoy,
     tribute: tribute,
     proposeAlliance: proposeAlliance,

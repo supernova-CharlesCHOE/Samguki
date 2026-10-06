@@ -15,6 +15,8 @@
     var troops = store.kingdomTroops(pk);
     var income = store.kingdomIncome(pk);
     var cityCount = store.citiesOf(pk).length;
+    var rice = store.kingdomRice ? store.kingdomRice(pk) : 0;
+    var riceBal = store.kingdomRiceBalance ? store.kingdomRiceBalance(pk) : 0;
 
     return el('div.hud', { style: { '--kcolor': k.color, '--kcolor-light': k.colorLight } }, [
       el('div.hud-left', null, [
@@ -27,6 +29,7 @@
       el('div.hud-stats', null, [
         el('div.hud-stat', null, [el('span.hud-stat-label', { text: '금' }), el('span.hud-stat-val', { text: state.gold[pk].toLocaleString() })]),
         el('div.hud-stat', null, [el('span.hud-stat-label', { text: '세수/턴' }), el('span.hud-stat-val', { text: '+' + income.toLocaleString() })]),
+        el('div.hud-stat', null, [el('span.hud-stat-label', { text: '군량' }), el('span.hud-stat-val' + (riceBal < 0 ? '.warn' : ''), { text: rice.toLocaleString() + ' (' + (riceBal >= 0 ? '+' : '') + riceBal.toLocaleString() + ')' })]),
         el('div.hud-stat', null, [el('span.hud-stat-label', { text: '총병력' }), el('span.hud-stat-val', { text: troops.toLocaleString() })]),
         el('div.hud-stat', null, [el('span.hud-stat-label', { text: '영지' }), el('span.hud-stat-val', { text: cityCount + '성' })])
       ]),
@@ -98,9 +101,11 @@
       el('div.city-info-stats', null, [
         UI.statBar('농업', c.agriculture, '#6ab04c'),
         UI.statBar('상업', c.commerce, '#c9a227'),
-        UI.statBar('치안', c.defense, '#4a90d9')
+        UI.statBar('치안', c.defense, '#4a90d9'),
+        UI.statBar('민심', c.popularity != null ? c.popularity : 60, (c.popularity >= 70 ? '#6ab04c' : (c.popularity >= 40 ? '#c9a227' : '#c0392b')))
       ]),
-      el('div.city-info-troops', { text: '병력 ' + c.troops.toLocaleString() + ' · 무장: ' + genNames }),
+      el('div.city-info-troops', { text: '병력 ' + c.troops.toLocaleString() + ' · 군량 ' + (c.rice || 0).toLocaleString() }),
+      el('div.city-info-troops', { text: '무장: ' + genNames }),
       el('div.city-info-actions', null, actions)
     ]);
   }

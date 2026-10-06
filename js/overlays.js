@@ -15,41 +15,123 @@
     ]);
   }
 
-  // ============ 내정 ============
+  // ============ 내정 (노부나가의 야망 참고: 군량·민심·세율·시설) ============
   function internal(state) {
     var c = store.cityById(state.selectedCityId);
     if (!c) return el('div.overlay-panel', null, [head('내정'), el('p', { text: '성이 선택되지 않았습니다.' })]);
     var gold = state.gold[state.playerKingdom];
 
-    function cmd(label, kind, cost, hint) {
+    // 능력치 막대(시설 상한 표시)
+    function devStat(label, statKey, buildKey, color) {
+      var cap = store.statCap(c.buildings[buildKey]);
+      return el('div.dev-stat-row', null, [
+        UI.statBar(label, c[statKey], color),
+        el('span.dev-cap', { text: '상한 ' + cap + ' · ' + buildKey.replace('irrigation', '관개').replace('market', '시장').replace('fort', '성채') + ' Lv' + c.buildings[buildKey] })
+      ]);
+    }
+
+    // 개발 명령 버튼
+    function devCmd(label, kind, hint) {
+      var statKey = kind === 'agriculture' ? 'agriculture' : (kind === 'commerce' ? 'commerce' : 'defense');
+      var buildKey = kind === 'agriculture' ? 'irrigation' : (kind === 'commerce' ? 'market' : 'fort');
+      var atCap = c[statKey] >= store.statCap(c.buildings[buildKey]);
       return el('div.affair-cmd', null, [
         el('div.affair-cmd-info', null, [
           el('div.affair-cmd-name', { text: label }),
-          el('div.affair-cmd-hint', { text: hint })
+          el('div.affair-cmd-hint', { text: atCap ? '상한 도달 — 시설을 증축하세요' : hint })
         ]),
         el('button.btn.btn-primary', {
-          text: cost + '금',
-          disabled: gold < cost,
+          text: '300금',
+          disabled: gold < 300 || atCap,
           onClick: function () { store.developCity(c.id, kind); }
         })
       ]);
     }
 
-    return el('div.overlay-panel.internal-panel', null, [
+    // 시설 증축 버튼
+    function upgradeCmd(label, buildKey, hint) {
+      var lvl = c.buildings[buildKey] || 1;
+      var cost = lvl >= 3 ? 0 : (lvl === 1 ? 800 : 1600);
+      return el('div.affair-cmd.upgrade-cmd', null, [
+        el('div.affair-cmd-info', null, [
+          el('div.affair-cmd-name', { text: label + ' Lv' + lvl + (lvl >= 3 ? ' (최대)' : '') }),
+          el('div.affair-cmd-hint', { text: hint })
+        ]),
+        el('button.btn', {
+          text: lvl >= 3 ? '최대' : cost + '금',
+          disabled: lvl >= 3 || gold < cost,
+          onClick: function () { store.upgradeBuilding(c.id, buildKey); }
+        })
+      ]);
+    }
+
+    // 민심 색상
+    var moodColor = c.popularity >= 70 ? '#6ab04c' : (c.popularity >= 40 ? '#c9a227' : '#c0392b');
+    // 담당관 표시
+    var govP = store.governorPolitics(c);
+    var govText = govP > 0 ? ('담당관 정치 ' + govP + ' · 개발효율 ×' + store.devEfficiency(c).toFixed(2)) : '담당관 없음 · 개발효율 ×0.80';
+
+    // 세율 선택 버튼
+    function taxBtn(rate, label) {
+      return el('button.btn.tax-btn' + (c.taxRate === rate ? '.active' : ''), {
+        text: label,
+        onClick: function () { store.setTaxRate(c.id, rate); }
+      });
+    }
+
+    return el('div.overlay-panel.internal-panel', { style: { '--kcolor': K(c.kingdom) ? K(c.kingdom).color : '#5a5346' } }, [
       head('내정 · ' + c.name),
       el('div.internal-body', null, [
-        el('div.internal-stats', null, [
-          UI.statBar('농업', c.agriculture, '#6ab04c'),
-          UI.statBar('상업', c.commerce, '#c9a227'),
-          UI.statBar('치안', c.defense, '#4a90d9'),
-          el('div.internal-troops', { text: '병력: ' + c.troops.toLocaleString() }),
-          el('div.internal-income', { text: '예상 세수/턴: +' + (c.commerce * 6 + c.agriculture * 4).toLocaleString() + '금' })
+        // ── 상단: 핵심 자원 요약 ──
+        el('div.internal-summary', null, [
+          el('div.res-chip', null, [el('span.res-k', { text: '군량' }), el('span.res-v', { text: (c.rice || 0).toLocaleString() })]),
+          el('div.res-chip', null, [el('span.res-k', { text: '세수/턴' }), el('span.res-v', { text: '+' + store.cityIncome(c).toLocaleString() + '금' })]),
+          el('div.res-chip', null, [el('span.res-k', { text: '군량수지' }), el('span.res-v', { text: (store.cityRiceYield(c) - store.cityRiceUpkeep(c) >= 0 ? '+' : '') + (store.cityRiceYield(c) - store.cityRiceUpkeep(c)).toLocaleString() })]),
+          el('div.res-chip', null, [el('span.res-k', { text: '병력' }), el('span.res-v', { text: c.troops.toLocaleString() })])
         ]),
+        // ── 능력치 + 민심 ──
+        el('div.internal-stats', null, [
+          devStat('농업', 'agriculture', 'irrigation', '#6ab04c'),
+          devStat('상업', 'commerce', 'market', '#c9a227'),
+          devStat('치안', 'defense', 'fort', '#4a90d9'),
+          UI.statBar('민심', c.popularity, moodColor),
+          el('div.gov-note', { text: govText })
+        ]),
+        // ── 세율 ──
+        el('div.tax-row', null, [
+          el('span.tax-label', { text: '세율' }),
+          taxBtn('low', '경세'),
+          taxBtn('normal', '보통'),
+          taxBtn('high', '중세'),
+          el('span.tax-hint', { text: '경세: 세수↓ 민심↑ · 중세: 세수↑ 민심↓' })
+        ]),
+        // ── 개발 명령 ──
+        el('div.internal-section-title', { text: '개발' }),
         el('div.internal-cmds', null, [
-          cmd('농업 개발', 'agriculture', 300, '농업 +6 · 세수와 병력 회복 증가'),
-          cmd('상업 진흥', 'commerce', 300, '상업 +6 · 세수 증가'),
-          cmd('성벽 보강', 'defense', 300, '치안 +6 · 방어력 상승'),
-          cmd('병사 모집', 'troops', 200, '병력 +1,500')
+          devCmd('농업 개발', 'agriculture', '농업↑ · 군량 수확·세수 증가'),
+          devCmd('상업 진흥', 'commerce', '상업↑ · 세수 증가'),
+          devCmd('성벽 보강', 'defense', '치안↑ · 방어력 상승'),
+          el('div.affair-cmd', null, [
+            el('div.affair-cmd-info', null, [
+              el('div.affair-cmd-name', { text: '민심 안정(구휼)' }),
+              el('div.affair-cmd-hint', { text: '민심 +8 · 세수·수확·모집 효율 상승' })
+            ]),
+            el('button.btn.btn-primary', { text: '250금', disabled: gold < 250, onClick: function () { store.developCity(c.id, 'relief'); } })
+          ]),
+          el('div.affair-cmd', null, [
+            el('div.affair-cmd-info', null, [
+              el('div.affair-cmd-name', { text: '병사 모집' }),
+              el('div.affair-cmd-hint', { text: '병력↑ (금 200 + 군량 300, 민심 소폭↓)' })
+            ]),
+            el('button.btn.btn-primary', { text: '200금+군량', disabled: gold < 200 || (c.rice || 0) < 300, onClick: function () { store.developCity(c.id, 'troops'); } })
+          ])
+        ]),
+        // ── 시설 증축 ──
+        el('div.internal-section-title', { text: '시설 증축 (능력치 상한·효율 상승)' }),
+        el('div.internal-cmds', null, [
+          upgradeCmd('관개 시설', 'irrigation', '농업 상한↑ · 수해/가뭄 피해 경감'),
+          upgradeCmd('시장', 'market', '상업 세수 배율↑'),
+          upgradeCmd('성채', 'fort', '치안 상한↑ · 농성 방어↑')
         ]),
         el('div.internal-gold', { text: '보유 금: ' + gold.toLocaleString() })
       ])

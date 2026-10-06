@@ -183,11 +183,15 @@ body {
 
 .city-label { font-size: 11px; fill: var(--parchment); paint-order: stroke; stroke: #000; stroke-width: 3px; font-weight: bold; }
 .city-label.player { fill: var(--gold-light); }
-.city-troops { font-size: 9px; fill: #cdbf9c; paint-order: stroke; stroke: #000; stroke-width: 2.5px; }
-.map-region-label { font-size: 22px; fill: #6b7a4a; opacity: 0.5; letter-spacing: 4px; font-weight: bold; }
-.map-region-sub { font-size: 11px; fill: #6b7a4a; opacity: 0.45; letter-spacing: 3px; }
+.city-troops { font-size: 9px; fill: #e8dcc0; paint-order: stroke; stroke: #000; stroke-width: 2.5px; }
+.map-region-label { font-size: 20px; fill: #d8c9a0; opacity: 0.28; letter-spacing: 5px; font-weight: bold; paint-order: stroke; stroke: #1a140a; stroke-width: 0.6px; }
+.map-region-sub { font-size: 10px; fill: #d8c9a0; opacity: 0.25; letter-spacing: 3px; }
+.compass-n { font-size: 11px; fill: #e8c85a; font-weight: bold; }
 .pulse { animation: pulseRing 1.2s infinite; }
-.city-marker:hover circle:first-child { filter: brightness(1.3); }
+.city-marker { transition: transform 0.12s; }
+.city-marker:hover { transform: scale(1.08); }
+.city-marker:hover circle:nth-of-type(1) { filter: brightness(1.3); }
+.territory-halo { transition: opacity 0.3s; }
 
 /* ===== 도시 정보 패널 ===== */
 .city-info {
@@ -434,3 +438,60 @@ body {
 .report-line-title { font-weight: bold; color: #7a1414; font-size: 15px; margin-bottom: 2px; }
 .report-line-text { font-size: 13px; line-height: 1.6; color: #3a2a12; }
 .report-scroll .btn-primary { display: block; margin: 0 auto; }
+
+/* =====================================================================
+   내정·그래픽 강화 (노부나가의 야망 참고): 자원 요약·시설·세율·민심
+   ===================================================================== */
+
+/* 지도 영역 배경을 고지도풍으로 */
+.map-area {
+  background:
+    radial-gradient(circle at 50% 38%, #16324a, #091625 75%),
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 6px);
+}
+.map-svg { filter: drop-shadow(0 6px 18px rgba(0,0,0,0.5)); }
+
+/* HUD 군량 부족 경고 */
+.hud-stat-val.warn { color: #e86a4b; animation: warnPulse 1.4s infinite; }
+@keyframes warnPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* 내정 패널 상단 자원 요약 칩 */
+.internal-panel { border-color: var(--kcolor, var(--gold)); }
+.internal-summary {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  margin-bottom: 16px;
+}
+.res-chip {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: linear-gradient(rgba(201,162,39,0.1), rgba(0,0,0,0.25));
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 6px;
+}
+.res-k { font-size: 11px; color: #a08d5f; letter-spacing: 1px; }
+.res-v { font-size: 16px; font-weight: bold; color: var(--gold-light); }
+
+/* 능력치 + 시설 상한 라벨 */
+.dev-stat-row { display: flex; align-items: center; gap: 10px; }
+.dev-stat-row .stat-row { flex: 1; }
+.dev-cap { font-size: 11px; color: #9a8d6f; white-space: nowrap; min-width: 150px; text-align: right; }
+.gov-note { font-size: 12px; color: var(--gold); margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); }
+
+/* 세율 선택 */
+.tax-row { display: flex; align-items: center; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+.tax-label { font-size: 13px; color: var(--parchment-dark); min-width: 34px; }
+.tax-btn { padding: 5px 14px; font-size: 13px; }
+.tax-btn.active { background: linear-gradient(var(--gold), #9c7a10); color: #1a1206; border-color: var(--gold-light); font-weight: bold; }
+.tax-hint { font-size: 11px; color: #8a7a55; flex-basis: 100%; }
+
+/* 내정 섹션 제목 */
+.internal-section-title {
+  font-size: 13px; color: var(--gold); letter-spacing: 2px;
+  margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
+}
+.upgrade-cmd { background: linear-gradient(rgba(74,144,217,0.08), rgba(0,0,0,0.3)); }
+
+/* 승리/타이틀 등 공통 패널에 미세한 양피 질감 */
+.overlay-panel, .kingdom-card, .scenario-card {
+  background-image:
+    radial-gradient(circle at 15% 10%, rgba(201,162,39,0.05), transparent 40%),
+    radial-gradient(circle at 85% 90%, rgba(139,26,26,0.05), transparent 40%);
+}
