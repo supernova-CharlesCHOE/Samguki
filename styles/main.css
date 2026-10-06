@@ -579,3 +579,27 @@ body {
 .officer-advance { display: flex; flex-direction: column; gap: 8px; }
 .officer-advance-note { font-size: 12px; color: var(--parchment-dark); }
 .city-info-note { font-size: 12px; color: #8a7a55; line-height: 1.5; }
+
+/* =====================================================================
+   기능(技能) 시스템 (태합입지전5 참고): 기능 칩 · 사사(師事) 수련
+   ===================================================================== */
+
+/* 무장 카드의 기능 칩 */
+.skill-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.skill-chips-label { font-size: 11px; color: var(--gold); margin-right: 2px; }
+.skill-chip {
+  font-size: 10px; color: #e8dcc0;
+  background: rgba(74,144,217,0.18); border: 1px solid #3a5a7a;
+  border-radius: 8px; padding: 1px 7px;
+}
+
+/* 사사 수련 그리드 */
+.skill-study-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.skill-study-btn {
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  padding: 7px 8px; font-size: 12px;
+}
+.skill-study-btn.maxed { opacity: 0.7; border-color: var(--gold); }
+.skill-study-name { font-size: 12px; }
+.skill-study-track { height: 5px; background: #2a2114; border-radius: 3px; overflow: hidden; }
+.skill-study-fill { display: block; height: 100%; background: #4a90d9; }

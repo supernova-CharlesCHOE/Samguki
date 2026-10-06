@@ -204,6 +204,17 @@
       }, [el('span', { text: label }), el('span.spirit-val', { text: String((g.spirit && g.spirit[kind]) || 0) })]);
     }
 
+    // 기능(技能) 칩: Lv.1 이상인 기능만 표시
+    function skillChips(g) {
+      var owned = (S.store.SKILL_DEFS || []).filter(function (sd) { return store.skillLevel(g, sd.id) > 0; });
+      if (!owned.length) return null;
+      return el('div.skill-chips', null, [el('span.skill-chips-label', { text: '기능' })].concat(
+        owned.map(function (sd) {
+          return el('span.skill-chip', { title: sd.desc, text: sd.name + ' Lv.' + store.skillLevel(g, sd.id) });
+        })
+      ));
+    }
+
     function card(g, locked) {
       var color = K(g.kingdom).colorLight;
       var assignment = loc[g.id] ? loc[g.id].name : '재야';
@@ -227,6 +238,7 @@
               text: '의형제: ' + g.sworn.map(function (sid) { var s = store.generalById(sid); return s ? s.name : ''; }).filter(Boolean).join(', ')
             }) : null,
             el('p.general-bio', { text: g.bio }),
+            skillChips(g),
             mineCard ? el('div.spirit-row', null, [
               el('div.spirit-title', { text: '삼혼 수련 (250금)' }),
               el('div.spirit-btns', null, [
@@ -657,6 +669,20 @@
           trainBtn('martial', '무혼'),
           trainBtn('mind', '지혼')
         ]),
+        // 사사(師事) — 기능 수련 (태합입지전5)
+        el('div.internal-section-title', { text: '사사(師事) · 기능 수련 (150금, 턴당 1회)' }),
+        el('div.skill-study-grid', null, (S.store.SKILL_DEFS || []).map(function (sd) {
+          var lv = store.skillLevel(g, sd.id);
+          var pct = lv >= store.SKILL_MAX ? 100 : Math.round(((g.skillExp && g.skillExp[sd.id] || 0) / store.SKILL_EXP_PER_LEVEL) * 100);
+          return el('button.btn.skill-study-btn' + (lv >= store.SKILL_MAX ? '.maxed' : ''), {
+            disabled: acted || lv >= store.SKILL_MAX || state.personalGold < 150,
+            title: sd.desc,
+            onClick: function () { store.officerStudy(sd.id); }
+          }, [
+            el('span.skill-study-name', { text: sd.name + ' Lv.' + lv }),
+            el('span.skill-study-track', null, [el('span.skill-study-fill', { style: { width: pct + '%' } })])
+          ]);
+        })),
         // 출세 (고위직)
         el('div.internal-section-title', { text: '출세' }),
         el('div.officer-advance', null, [

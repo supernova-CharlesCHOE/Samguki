@@ -52,8 +52,43 @@
     high:   { mult: 1.3,  moodDelta: -5, label: '중세(무거움)' }
   };
 
+  // ── 기능(技能) 체계 (태합입지전5 참고) ──
+  // 각 기능은 Lv.0~4. 사사(師事)·관련 행동으로 숙련도가 올라 레벨이 상승한다.
+  var SKILL_DEFS = [
+    { id: 'martial',   name: '무예', hanja: '武藝', desc: '개인전(일기토)에서 유리. 전투 공격 보정' },
+    { id: 'archery',   name: '궁술', hanja: '弓術', desc: '궁병 전투와 원거리 보정' },
+    { id: 'cavalry',   name: '기마', hanja: '騎馬', desc: '기병 전투 보정' },
+    { id: 'military',  name: '군학', hanja: '軍學', desc: '전투 시작 사기·전법 성공률 상승' },
+    { id: 'medicine',  name: '의술', hanja: '醫術', desc: '일기토 중 체력 회복, 역병 저항' },
+    { id: 'rhetoric',  name: '변설', hanja: '辯舌', desc: '설전·등용·외교 성공률 상승' },
+    { id: 'arithmetic',name: '산술', hanja: '算術', desc: '내정 근무·임무의 금·공훈 효율 상승' },
+    { id: 'etiquette', name: '예법', hanja: '禮法', desc: '민심·충성·호감 상승 효율' }
+  ];
+  var SKILL_IDS = SKILL_DEFS.map(function (s) { return s.id; });
+  var SKILL_EXP_PER_LEVEL = 100; // 레벨당 필요 숙련도
+  var SKILL_MAX = 4;
+
+  // 능력치로부터 초기 기능 레벨 추정 (역사 인물의 개성 반영)
+  function deriveSkills(g) {
+    var s = {};
+    SKILL_IDS.forEach(function (k) { s[k] = 0; });
+    var F = g.force || 0, C = g.command || 0, I = g.intellect || 0, P = g.politics || 0;
+    if (F >= 90) s.martial = 3; else if (F >= 80) s.martial = 2; else if (F >= 65) s.martial = 1;
+    if (F >= 85 && C >= 80) s.archery = 2; else if (F >= 75) s.archery = 1;
+    if (C >= 90) s.cavalry = 2; else if (C >= 78) s.cavalry = 1;
+    if (C >= 90 && I >= 80) s.military = 3; else if (C >= 82) s.military = 2; else if (C >= 70) s.military = 1;
+    if (I >= 90) s.medicine = 1;
+    if (I >= 90 && P >= 85) s.rhetoric = 3; else if (I >= 82) s.rhetoric = 2; else if (I >= 70) s.rhetoric = 1;
+    if (P >= 88) s.arithmetic = 2; else if (P >= 75) s.arithmetic = 1;
+    if (P >= 90) s.etiquette = 3; else if (P >= 80) s.etiquette = 2; else if (P >= 68) s.etiquette = 1;
+    return s;
+  }
+
   function deepCopyGenerals(gens) {
     return gens.map(function (g) {
+      var skills = deriveSkills(g);
+      var skillExp = {};
+      SKILL_IDS.forEach(function (k) { skillExp[k] = 0; });
       return {
         id: g.id, name: g.name, kingdom: g.kingdom,
         command: g.command, force: g.force, intellect: g.intellect,
@@ -62,9 +97,35 @@
         spirit: { command: 0, martial: 0, mind: 0 },
         exp: 0,               // 수련 경험치
         sworn: [],            // 의형제로 맺은 무장 id 목록
-        free: g.free === true // 재야(무소속) 무장 여부
+        free: g.free === true,// 재야(무소속) 무장 여부
+        // 기능(技能) 레벨/숙련도 (태합입지전5 참고)
+        skills: skills,
+        skillExp: skillExp
       };
     });
+  }
+
+  // 기능 레벨 조회/숙련도 증가 (레벨업 시 로그/토스트)
+  function skillLevel(g, id) { return (g && g.skills && g.skills[id]) || 0; }
+  function gainSkillExp(g, id, amount, silent) {
+    if (!g.skills) g.skills = deriveSkills(g);
+    if (!g.skillExp) { g.skillExp = {}; SKILL_IDS.forEach(function (k) { g.skillExp[k] = 0; }); }
+    if (g.skills[id] >= SKILL_MAX) return;
+    g.skillExp[id] = (g.skillExp[id] || 0) + amount;
+    while (g.skillExp[id] >= SKILL_EXP_PER_LEVEL && g.skills[id] < SKILL_MAX) {
+      g.skillExp[id] -= SKILL_EXP_PER_LEVEL;
+      g.skills[id]++;
+      var def = skillDef(id);
+      if (!silent) {
+        pushLog('[기능] ' + g.name + '의 ' + (def ? def.name : id) + '이(가) Lv.' + g.skills[id] + '(으)로 올랐다.');
+        if (g.id === state.playerGeneralId) toast(def.name + ' 기능이 Lv.' + g.skills[id] + '(으)로 상승!');
+      }
+    }
+    if (g.skills[id] >= SKILL_MAX) g.skillExp[id] = 0;
+  }
+  function skillDef(id) {
+    for (var i = 0; i < SKILL_DEFS.length; i++) if (SKILL_DEFS[i].id === id) return SKILL_DEFS[i];
+    return null;
   }
 
   // 세력별 시작 금(기본 3000, 국력이 큰 당은 넉넉하게)
@@ -302,25 +363,45 @@
   }
 
   // 내정 근무: 소속 성을 개발하고 공훈·봉록·지력/정치 경험을 얻는다
+  // 산술/예법 기능 레벨이 금·공훈 효율과 개발량을 높인다 (태합입지전5의 기능 보정)
   function officerAdminService(kind) {
     if (!officerGuard()) return;
     var c = officerCity();
     if (!c) { toast('근무할 성이 없습니다.'); notify(); return; }
     var g = generalById(state.playerGeneralId);
-    // 개발 효과(세력 자원이 아닌 성 능력치에 직접 반영 + 본인 공훈)
-    var eff = 1 + (effStat(g, 'politics') / 100) * 0.5;
+    var arith = skillLevel(g, 'arithmetic');   // 산술: 금·공훈 효율
+    var etiq = skillLevel(g, 'etiquette');      // 예법: 민심·개발 효율
+    var eff = 1 + (effStat(g, 'politics') / 100) * 0.5 + etiq * 0.08;
     var gain = Math.round(5 * eff);
     if (kind === 'agriculture') c.agriculture = Math.min(statCap(c.buildings.irrigation), c.agriculture + gain);
     else if (kind === 'commerce') c.commerce = Math.min(statCap(c.buildings.market), c.commerce + gain);
-    else { c.defense = Math.min(statCap(c.buildings.fort), c.defense + gain); c.popularity = Math.min(100, c.popularity + 2); }
-    var merit = 10 + Math.round(effStat(g, 'politics') / 10);
+    else { c.defense = Math.min(statCap(c.buildings.fort), c.defense + gain); c.popularity = Math.min(100, c.popularity + 2 + etiq); }
+    var merit = Math.round((10 + effStat(g, 'politics') / 10) * (1 + arith * 0.1));
     addMerit(merit, g.name + '이(가) ' + c.name + '에서 내정에 힘썼다.');
-    // 지력/정치 경험 → 삼혼(지혼) 소폭 상승
     if (!g.spirit) g.spirit = { command: 0, martial: 0, mind: 0 };
     g.spirit.mind = Math.min(100, g.spirit.mind + 1);
-    state.personalGold += 60;
+    // 기능 숙련: 상업 근무→산술, 치안 근무→예법, 농업→산술 소량
+    gainSkillExp(g, kind === 'commerce' ? 'arithmetic' : (kind === 'defense' ? 'etiquette' : 'arithmetic'), 30);
+    var goldGain = 60 + arith * 20;
+    state.personalGold += goldGain;
     state.actedThisTurn = true;
-    toast('내정 근무 완료 (공훈 +' + merit + ', 금 +60)');
+    toast('내정 근무 완료 (공훈 +' + merit + ', 금 +' + goldGain + ')');
+    notify();
+  }
+
+  // 사사(師事): 금을 들여 특정 기능의 숙련도를 올린다 (레벨업 가능)
+  function officerStudy(skillId) {
+    if (!officerGuard()) return;
+    var g = generalById(state.playerGeneralId);
+    if (!skillDef(skillId)) return;
+    if (skillLevel(g, skillId) >= SKILL_MAX) { toast('이미 최고 수준(Lv.4)입니다.'); notify(); return; }
+    var cost = 150;
+    if (state.personalGold < cost) { toast('재산이 부족합니다. (' + cost + '금 필요)'); notify(); return; }
+    state.personalGold -= cost;
+    gainSkillExp(g, skillId, 55 + Math.floor(Math.random() * 25)); // 55~79 숙련
+    addMerit(3, g.name + '이(가) ' + skillDef(skillId).name + '을(를) 수련했다.');
+    state.actedThisTurn = true;
+    toast(skillDef(skillId).name + ' 사사 완료 (숙련 상승)');
     notify();
   }
 
@@ -335,26 +416,32 @@
     state.actedThisTurn = true;
     var label = { command: '통솔혼', martial: '무혼', mind: '지혼' }[spiritKind] || spiritKind;
     toast('훈련 완료: ' + label + ' +' + up + ' (공훈 +5)');
+    // 훈련 종류에 맞는 기능 숙련: 통솔→군학, 무→무예, 지→의술
+    gainSkillExp(g, spiritKind === 'command' ? 'military' : (spiritKind === 'martial' ? 'martial' : 'medicine'), 25);
     notify();
   }
 
-  // 임무(순찰/토벌): 확률적 성과. 성공 시 공훈·금, 실패 시 소폭 손실
+  // 임무(순찰/토벌): 확률적 성과. 무예·변설 기능이 성공률을 높인다.
   function officerMission() {
     if (!officerGuard()) return;
     var g = generalById(state.playerGeneralId);
     var skill = (effStat(g, 'command') + effStat(g, 'force') + effStat(g, 'intellect')) / 3;
-    var success = Math.random() * 100 < (40 + skill / 2);
+    var skillBonus = (skillLevel(g, 'martial') + skillLevel(g, 'rhetoric')) * 4;
+    var success = Math.random() * 100 < (40 + skill / 2 + skillBonus);
     state.actedThisTurn = true;
     if (success) {
       var m = 14 + Math.round(skill / 8);
-      var gold = 120 + Math.floor(Math.random() * 120);
+      var gold = 120 + Math.floor(Math.random() * 120) + skillLevel(g, 'arithmetic') * 25;
       addMerit(m, g.name + '이(가) 임무(순찰·토벌)를 완수했다.');
       state.personalGold += gold;
       if (!g.spirit) g.spirit = { command: 0, martial: 0, mind: 0 };
       g.spirit.martial = Math.min(100, g.spirit.martial + 1);
+      gainSkillExp(g, 'martial', 20);
+      gainSkillExp(g, 'rhetoric', 12);
       toast('임무 성공! (공훈 +' + m + ', 금 +' + gold + ')');
     } else {
       pushLog(g.name + '이(가) 임무에 실패하여 체면을 잃었다.');
+      gainSkillExp(g, 'martial', 8);
       toast('임무 실패... 다음을 기약하자.');
     }
     notify();
@@ -686,6 +773,9 @@
       // 사기(0~100)
       atkMorale: 100,
       defMorale: 100,
+      // 지휘관 군학(軍學) 기능 레벨 (전법 성공률·사기 저항에 반영)
+      atkMilitary: skillLevel(atkGen, 'military'),
+      defMilitary: skillLevel(defGen, 'military'),
       // 진형(기본: 공격=어린, 수비=방원)
       atkFormation: 'eorin',
       defFormation: isSiege ? 'bangwon' : 'eorin',
@@ -745,7 +835,8 @@
       if (b.atkTacticCd > 0) { toast('전법을 다시 쓰려면 ' + b.atkTacticCd + '라운드 기다려야 합니다.'); notify(); return; }
       var intel = genStat(b.atkGen, 'intellect', 55);
       var defIntel = genStat(b.defGen, 'intellect', 55);
-      var successChance = 0.35 + (intel - defIntel) / 200; // 지력차가 성패를 가른다
+      // 군학(軍學) 기능 레벨이 전법 성공률을 높인다 (레벨당 +6%)
+      var successChance = 0.35 + (intel - defIntel) / 200 + (b.atkMilitary || 0) * 0.06;
       b.atkTacticCd = 3;
       if (Math.random() < Math.max(0.1, Math.min(0.9, successChance))) {
         var moraleHit = 18 + Math.round(intel / 5);
@@ -767,8 +858,18 @@
     var atkForm = FORMATIONS[b.atkFormation] || FORMATIONS.eorin;
     var defForm = FORMATIONS[b.defFormation] || FORMATIONS.bangwon;
 
-    var atkPow = (genStat(b.atkGen, 'command', 60) * 0.5 + genStat(b.atkGen, 'force', 60) * 0.5) * supportBonus(b.atkSupport);
-    var defPow = (genStat(b.defGen, 'command', 55) * 0.5 + genStat(b.defGen, 'force', 55) * 0.5) * supportBonus(b.defSupport);
+    // 주력 병종에 맞는 기능 레벨이 전투력을 높인다 (보병→무예, 기병→기마, 궁병→궁술)
+    var unitSkillKey = { infantry: 'martial', cavalry: 'cavalry', archer: 'archery' };
+    var atkG = b.atkGen ? generalById(b.atkGen) : null;
+    var defG = b.defGen ? generalById(b.defGen) : null;
+    var atkSkillMult = 1 + (atkG ? skillLevel(atkG, unitSkillKey[mainUnit(b.atkComp)]) : 0) * 0.05;
+    var defSkillMult = 1 + (defG ? skillLevel(defG, unitSkillKey[mainUnit(b.defComp)]) : 0) * 0.05;
+
+    var atkPow = (genStat(b.atkGen, 'command', 60) * 0.5 + genStat(b.atkGen, 'force', 60) * 0.5) * supportBonus(b.atkSupport) * atkSkillMult;
+    var defPow = (genStat(b.defGen, 'command', 55) * 0.5 + genStat(b.defGen, 'force', 55) * 0.5) * supportBonus(b.defSupport) * defSkillMult;
+
+    // 전투 중 병종 사용으로 지휘관 기능 숙련 상승 (플레이어 무장 위주)
+    if (atkG) gainSkillExp(atkG, unitSkillKey[mainUnit(b.atkComp)], 6, true);
 
     // 지형(수비 치안) + 공성 보정
     var terrain = 1 + (to.defense / 400) + (b.isSiege ? 0.12 : 0);
@@ -955,8 +1056,9 @@
   }
 
   function duelPower(g) {
-    // 무력 위주 + 통솔 약간 반영
-    return effStat(g, 'force') * 0.75 + effStat(g, 'command') * 0.25;
+    // 무력 위주 + 통솔 약간 반영 + 무예(武藝) 기능 보정 (레벨당 +4%)
+    var base = effStat(g, 'force') * 0.75 + effStat(g, 'command') * 0.25;
+    return base * (1 + skillLevel(g, 'martial') * 0.04);
   }
 
   function duelAction(action) {
@@ -989,9 +1091,19 @@
     b.dHp = Math.max(0, b.dHp - dmgToD);
     b.aHp = Math.max(0, b.aHp - dmgToA);
 
+    // 의술(醫術) 기능: 신중 자세일 때 체력 회복 (레벨당 +3, 신중 시 2배)
+    var healLog = '';
+    var medLv = skillLevel(a, 'medicine');
+    if (medLv > 0 && b.aHp > 0) {
+      var heal = medLv * 3 * (action === 'guard' ? 2 : 1);
+      if (heal > 0) { b.aHp = Math.min(100, b.aHp + heal); healLog = ', ' + a.name + ' 의술로 +' + heal; }
+    }
+
     var actName = { strike: '맹공', guard: '신중', feint: '허허실실' }[action] || action;
-    b.log.unshift('제' + b.round + '합 [' + actName + '] · ' + d.name + ' -' + dmgToD + ', ' + a.name + ' -' + dmgToA);
+    b.log.unshift('제' + b.round + '합 [' + actName + '] · ' + d.name + ' -' + dmgToD + ', ' + a.name + ' -' + dmgToA + healLog);
     b.round++;
+    // 일기토로 무예 숙련 상승
+    if (a) gainSkillExp(a, 'martial', 5, true);
 
     if (b.dHp <= 0 && b.aHp <= 0) {
       b.over = true; b.result = b.aHp >= b.dHp ? 'win' : 'lose';
@@ -1094,7 +1206,9 @@
   }
 
   function debatePower(g) {
-    return effStat(g, 'intellect') * 0.6 + effStat(g, 'politics') * 0.4;
+    // 변설(辯舌) 기능이 설전 능력을 높인다 (레벨당 +5%)
+    var base = effStat(g, 'intellect') * 0.6 + effStat(g, 'politics') * 0.4;
+    return base * (1 + skillLevel(g, 'rhetoric') * 0.05);
   }
 
   function debateAction(action) {
@@ -1687,6 +1801,14 @@
     officerSortie: officerSortie,
     officerBecomeGovernor: officerBecomeGovernor,
     officerDeclareIndependence: officerDeclareIndependence,
+    officerStudy: officerStudy,
+    // 기능(技能) 체계 (태합입지전5)
+    SKILL_DEFS: SKILL_DEFS,
+    SKILL_IDS: SKILL_IDS,
+    SKILL_MAX: SKILL_MAX,
+    SKILL_EXP_PER_LEVEL: SKILL_EXP_PER_LEVEL,
+    skillLevel: skillLevel,
+    skillDef: skillDef,
     selectCity: selectCity,
     openOverlay: openOverlay,
     closeOverlay: closeOverlay,
