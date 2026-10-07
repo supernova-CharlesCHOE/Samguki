@@ -244,7 +244,8 @@
           el('div.general-id', null, [
             el('div.general-name-row', null, [
               el('div.general-name', { text: locked ? '???' : g.name }),
-              el('span.general-level', { text: 'Lv.' + (g.level || 1) })
+              // 타국(첩보) 카드는 능력치와 마찬가지로 레벨도 가린다 — 적 무장 성장도 노출 금지
+              el('span.general-level' + (locked ? '.masked' : ''), { text: locked ? 'Lv.?' : ('Lv.' + (g.level || 1)) })
             ]),
             el('div.general-kingdom', { text: kname + (locked ? '' : ' · ' + assignment) })
           ])

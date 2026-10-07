@@ -287,6 +287,10 @@ body {
   background: rgba(0,0,0,0.3); border: 1px solid var(--gold);
   border-radius: 10px; padding: 1px 7px; color: var(--gold-light); white-space: nowrap;
 }
+/* 타국(첩보) 카드: 레벨도 능력치처럼 가린다 */
+.general-level.masked {
+  color: var(--parchment-dark); border-color: var(--border); opacity: 0.7;
+}
 .general-exp { margin-top: 6px; }
 .general-exp-label { font-size: 10px; color: var(--parchment-dark); margin-bottom: 3px; }
 .general-exp-bar {

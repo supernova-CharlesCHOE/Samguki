@@ -93,6 +93,19 @@
     return s;
   }
 
+  // 성장축(아키타입)을 능력치로부터 1회 산정한다.
+  // 가장 높은 능력치를 주 성장축, 둘째로 높은 능력치를 보조축으로 고정한다.
+  // 동점은 ['command','force','intellect','politics'] 순서로 안정 정렬(결정적 결과).
+  function computeGrowthAxes(g) {
+    var keys = ['command', 'force', 'intellect', 'politics'];
+    var ranked = keys.slice().sort(function (a, b) {
+      var d = (g[b] || 0) - (g[a] || 0);
+      if (d !== 0) return d;
+      return keys.indexOf(a) - keys.indexOf(b);
+    });
+    return { primary: ranked[0], secondary: ranked[1] };
+  }
+
   function deepCopyGenerals(gens) {
     return gens.map(function (g) {
       var skills = deriveSkills(g);
@@ -112,7 +125,10 @@
         skillExp: skillExp,
         // 무장 육성(장수 성장): 레벨/누적 경험치
         level: 1,
-        levelExp: 0
+        levelExp: 0,
+        // 성장축(아키타입): 초기 능력치 기준으로 1회 산정해 고정한다.
+        // 레벨업마다 재정렬하지 않으므로 무장 개성(주/보조 성장축)이 유지된다.
+        growthAxes: computeGrowthAxes(g)
       };
     });
   }
@@ -122,17 +138,20 @@
     if (!g) return;
     if (typeof g.level !== 'number') g.level = 1;
     if (typeof g.levelExp !== 'number') g.levelExp = 0;
+    // 구세이브/구조 변경 폴백: 성장축이 없으면 현재 능력치로 1회 산정해 고정한다.
+    if (!g.growthAxes || !g.growthAxes.primary) g.growthAxes = computeGrowthAxes(g);
   }
 
   // 레벨업 시 성향(아키타입)에 맞춰 base 능력치를 소폭 성장시킨다.
-  // 데이터에 archetype 필드가 없으므로 기존 능력치로 성향을 추론한다 —
-  // 가장 높은 능력치를 주 성장축(+2), 둘째로 높은 능력치를 보조축(+1)으로 올린다.
+  // 성장축은 초기 능력치 기준으로 1회 산정된 g.growthAxes 를 사용해 고정한다 —
+  // 레벨업마다 재정렬하지 않으므로 주 능력치가 100에 닿아도 성장축이 옮겨가지 않고
+  // 무장 개성(주 성장축 +2, 보조축 +1)이 유지된다.
   // 모든 성장은 base 능력치에 직접 더하고 Math.min(100, ...) 로 클램프한다.
   // effStat() 가 base+삼혼보너스를 읽으므로 전투/일기토/설전/AI/UI 전반에 자동 반영된다.
   function applyGrowth(g) {
-    var keys = ['command', 'force', 'intellect', 'politics'];
-    var ranked = keys.slice().sort(function (a, b) { return (g[b] || 0) - (g[a] || 0); });
-    var primary = ranked[0], secondary = ranked[1];
+    var axes = g.growthAxes;
+    if (!axes || !axes.primary) { axes = computeGrowthAxes(g); g.growthAxes = axes; }
+    var primary = axes.primary, secondary = axes.secondary;
     g[primary] = Math.min(100, (g[primary] || 0) + 2);
     g[secondary] = Math.min(100, (g[secondary] || 0) + 1);
     return { primary: primary, secondary: secondary };
@@ -159,7 +178,8 @@
         }
       }
     }
-    if (g.level >= GENERAL_LEVEL_MAX) g.levelExp = 0;
+    // 상한 도달 시 잉여 경험치를 0으로 버리지 않고 그대로 보존한다(미세 손실 방지).
+    // UI(expBar)는 상한에서 'MAX'로 표시하므로 보존된 값이 노출되지는 않는다.
   }
 
   // 기능 레벨 조회/숙련도 증가 (레벨업 시 로그/토스트)
