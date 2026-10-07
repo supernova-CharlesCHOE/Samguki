@@ -303,6 +303,52 @@
     ]);
   }
 
+  // 계략 선택 패널: store.TACTICS를 나열하고 각 계략의 쿨다운/유불리를 표시한다.
+  function tacticMenu(b) {
+    var defMain = store.mainUnit(b.defComp);
+    var rows = (store.TACTICS || []).map(function (tac) {
+      var cd = (b.tacticCd && b.tacticCd[tac.id]) || 0;
+      var onCd = cd > 0;
+      var tags = tac.tags || {};
+
+      // 상황 유불리 산정: 야전/공성 적성 + 적 주력 상성(vsUnit)
+      var score = 0;
+      if (b.isSiege) {
+        if (tags.siege === 'strong') score += 1;
+        if (tags.siege === 'weak') score -= 1;
+      } else {
+        if (tags.field === 'strong') score += 1;
+        if (tags.field === 'weak') score -= 1;
+      }
+      if (tags.vsUnit && tags.vsUnit === defMain) score += 1;
+      if (tags.scalesSupport && (b.defSupport || []).length >= 2) score += 1;
+      var favLabel = score > 0 ? '유리' : (score < 0 ? '불리' : '보통');
+      var favCls = score > 0 ? 'fav-good' : (score < 0 ? 'fav-bad' : 'fav-neutral');
+
+      var cdLabel = onCd ? ('남은 ' + cd + '라운드') : '사용 가능';
+
+      return el('button.tactic-row' + (onCd ? '.on-cooldown' : ''), {
+        disabled: onCd,
+        title: tac.desc,
+        onClick: onCd ? null : function () { store.battleAction('tactic:' + tac.id); }
+      }, [
+        el('span.tactic-icon', { text: tac.icon || '計' }),
+        el('div.tactic-body', null, [
+          el('div.tactic-row-head', null, [
+            el('span.tactic-name', { text: tac.name }),
+            el('span.tactic-hanja', { text: tac.hanja ? '(' + tac.hanja + ')' : '' }),
+            el('span.tactic-fav.' + favCls, { text: favLabel })
+          ]),
+          el('div.tactic-desc', { text: tac.desc }),
+          el('div.tactic-cd' + (onCd ? '.cd-wait' : '.cd-ready'), { text: cdLabel })
+        ])
+      ]);
+    });
+    return el('div.tactic-menu', null, [
+      el('div.tactic-menu-title', { text: '계략 선택 (計略)' })
+    ].concat(rows));
+  }
+
   function battle(state) {
     var b = state.battle;
     if (!b) return el('div.overlay-panel', null, [head('전투'), el('p', { text: '진행중인 전투가 없습니다.' })]);
@@ -347,7 +393,7 @@
       ]);
     } else {
       var canDuel = b.atkGen && b.defGen;
-      var tacticReady = b.atkTacticCd <= 0;
+      var menuOpen = !!b._tacticMenuOpen;
       // 진형 선택 버튼
       var formBtns = Object.keys(store.FORMATIONS).map(function (fk) {
         var f = store.FORMATIONS[fk];
@@ -363,10 +409,11 @@
           el('button.btn.btn-danger', { text: '총공격', onClick: function () { store.battleAction('attack'); } }),
           el('button.btn', { text: '방어', onClick: function () { store.battleAction('defend'); } }),
           el('button.btn.btn-primary', { text: '필살전법', onClick: function () { store.battleAction('special'); } }),
-          el('button.btn.btn-tactic', { text: tacticReady ? '전법·계략' : '전법(' + b.atkTacticCd + ')', disabled: !tacticReady, onClick: function () { store.battleAction('tactic'); } }),
+          el('button.btn.btn-tactic' + (menuOpen ? '.active' : ''), { text: '전법·계략' + (menuOpen ? ' ▲' : ' ▼'), onClick: function () { store.toggleTacticMenu(); } }),
           canDuel ? el('button.btn.btn-duel', { text: '일기토', onClick: function () { store.startDuelFromBattle(); } }) : null,
           el('button.btn.btn-ghost', { text: '퇴각', onClick: function () { store.battleAction('retreat'); } })
-        ])
+        ]),
+        menuOpen ? tacticMenu(b) : null
       ]);
     }
 

@@ -883,8 +883,14 @@
       atkComp: composition(from.kingdom),
       defComp: composition(to.kingdom),
       isSiege: isSiege,
-      // 전법 재사용 대기(지력 기반 1회성 느낌 — 쿨다운)
+      // 전법 재사용 대기(지력 기반 1회성 느낌 — 쿨다운) — 구 단일 'tactic' 폴백용
       atkTacticCd: 0,
+      // 계략(計略) 상태 — 모두 순수 데이터(JSON 직렬화 가능)
+      tacticCd: {},            // 계략별 쿨다운 { id: 남은라운드 }
+      defActionLocked: 0,      // 적 반격/행동 봉쇄 남은 라운드(혼란계)
+      defAtkDebuff: { rounds: 0, amount: 0 }, // 적 공격력 저하(이간계) amount=저하율(0~)
+      defDefDebuff: { rounds: 0, amount: 0 }, // 적 방어력 저하
+      defBleed: { rounds: 0, amount: 0 },     // 지속 피해(수공) amount=라운드당 병력 피해
       round: 1,
       log: ['전투 개시! ' + from.name + ' → ' + to.name + (isSiege ? ' (공성전)' : ' (야전)')],
       over: false,
@@ -932,24 +938,149 @@
     }
 
     // 전법/계략: 지력 기반 성공. 성공 시 적 사기 급감 + 병력 피해
-    if (action === 'tactic') {
-      if (b.atkTacticCd > 0) { toast('전법을 다시 쓰려면 ' + b.atkTacticCd + '라운드 기다려야 합니다.'); notify(); return; }
-      var intel = genStat(b.atkGen, 'intellect', 55);
-      var defIntel = genStat(b.defGen, 'intellect', 55);
-      // 군학(軍學) 기능 레벨이 전법 성공률을 높인다 (레벨당 +6%)
-      var successChance = 0.35 + (intel - defIntel) / 200 + (b.atkMilitary || 0) * 0.06;
-      b.atkTacticCd = 3;
-      if (Math.random() < Math.max(0.1, Math.min(0.9, successChance))) {
-        var moraleHit = 18 + Math.round(intel / 5);
-        var trHit = Math.round(b.defTroops * 0.08 * (intel / 60));
-        b.defMorale = Math.max(0, b.defMorale - moraleHit);
-        b.defTroops = Math.max(0, b.defTroops - trHit);
-        b.log.unshift('제' + b.round + '라운드 [전법 성공!] 적을 교란 — 적 사기 -' + moraleHit + ', 병력 -' + trHit);
-      } else {
-        b.atkMorale = Math.max(0, b.atkMorale - 8);
-        b.log.unshift('제' + b.round + '라운드 [전법 실패] 계략이 간파당해 아군 사기 -8');
+    // 'tactic' (구 단일 전법) 또는 'tactic:<id>' (신 계략). 미지의 id / 데이터 부재 시 구 동작으로 폴백.
+    if (action === 'tactic' || (action && action.indexOf('tactic:') === 0)) {
+      b._tacticMenuOpen = false; // 계략을 쓰면 선택 메뉴를 닫는다
+      var tacId = action.indexOf('tactic:') === 0 ? action.split(':')[1] : null;
+      var TACS = global.SAMGUK && global.SAMGUK.TACTICS;
+      var tac = (tacId && TACS && typeof global.SAMGUK.tacticById === 'function')
+        ? global.SAMGUK.tacticById(tacId) : null;
+
+      // ── 폴백: 미지의 id 이거나 계략 데이터가 없으면 기존 단일 전법 동작 그대로 ──
+      if (!tac) {
+        if (b.atkTacticCd > 0) { toast('전법을 다시 쓰려면 ' + b.atkTacticCd + '라운드 기다려야 합니다.'); notify(); return; }
+        var intel = genStat(b.atkGen, 'intellect', 55);
+        var defIntel = genStat(b.defGen, 'intellect', 55);
+        // 군학(軍學) 기능 레벨이 전법 성공률을 높인다 (레벨당 +6%)
+        var successChance = 0.35 + (intel - defIntel) / 200 + (b.atkMilitary || 0) * 0.06;
+        b.atkTacticCd = 3;
+        if (Math.random() < Math.max(0.1, Math.min(0.9, successChance))) {
+          var moraleHit = 18 + Math.round(intel / 5);
+          var trHit = Math.round(b.defTroops * 0.08 * (intel / 60));
+          b.defMorale = Math.max(0, b.defMorale - moraleHit);
+          b.defTroops = Math.max(0, b.defTroops - trHit);
+          b.log.unshift('제' + b.round + '라운드 [전법 성공!] 적을 교란 — 적 사기 -' + moraleHit + ', 병력 -' + trHit);
+        } else {
+          b.atkMorale = Math.max(0, b.atkMorale - 8);
+          b.log.unshift('제' + b.round + '라운드 [전법 실패] 계략이 간파당해 아군 사기 -8');
+        }
+        b.round++;
+        if (b.atkTacticCd > 0) b.atkTacticCd--;
+        resolveRoundEnd(b, to);
+        notify();
+        return;
       }
+
+      // ── 계략별 처리 ──
+      if (!b.tacticCd) b.tacticCd = {};
+      var cd = b.tacticCd[tac.id] || 0;
+      if (cd > 0) {
+        toast(tac.name + '(' + tac.hanja + ')을(를) 다시 쓰려면 ' + cd + '라운드 기다려야 합니다.');
+        notify();
+        return;
+      }
+
+      var tIntel = genStat(b.atkGen, 'intellect', 55);
+      var tDefIntel = genStat(b.defGen, 'intellect', 55);
+      var mil = b.atkMilitary || 0;
+      var tags = tac.tags || {};
+      var defMain = mainUnit(b.defComp);
+      var supCount = (b.defSupport || []).length;
+
+      // 성공률: 기본치 + 지력차 + 군학 + 상황 보정
+      var chance = tac.baseChance + (tIntel - tDefIntel) / 200 + mil * 0.05;
+      if (tags.field === 'strong') chance += b.isSiege ? -0.10 : 0.12;
+      if (tags.field === 'weak') chance += b.isSiege ? 0.10 : -0.08;
+      if (tags.siege === 'strong') chance += b.isSiege ? 0.12 : -0.10;
+      if (tags.vsUnit && tags.vsUnit === defMain) chance += 0.10;
+      if (tags.scalesSupport) chance += supCount * 0.07;
+      if (tags.focus === 'morale') chance += (100 - b.defMorale) / 400; // 사기 낮으면 흔들기 쉬움
+      chance = Math.max(0.08, Math.min(0.92, chance));
+
+      // 효과 배율: 지력이 높을수록 성공 시 효과도 커진다
+      var mag = (tIntel / 60) * (1 + mil * 0.08);
+
+      // 이번 라운드에 '방금' 적용된 타이머는 resolveRoundEnd에서 감소를 1회 건너뛴다.
+      // (같은 라운드에 세팅→감소되어 광고된 지속 라운드가 1 줄어드는 off-by-one 방지)
+      b._appliedThisRound = {};
+      b.tacticCd[tac.id] = tac.cooldown;
+      b._appliedThisRound['cd:' + tac.id] = true;
+      var success = Math.random() < chance;
+      var head = '제' + b.round + '라운드 ';
+
+      if (success) {
+        if (tac.id === 'fire') {
+          var fMorale = Math.round((16 + tIntel / 5) * (b.isSiege ? 0.6 : 1.25));
+          var fBurn = Math.round(b.defTroops * (b.isSiege ? 0.05 : 0.11) * mag);
+          b.defMorale = Math.max(0, b.defMorale - fMorale);
+          b.defTroops = Math.max(0, b.defTroops - fBurn);
+          // 불이 적 진형·방어 시설을 태워 방어력을 2라운드간 떨어뜨린다(피해 경감 감소).
+          var fDefCut = Math.min(0.45, 0.15 + (tIntel / 400) + (b.isSiege ? 0.05 : 0.10));
+          b.defDefDebuff = { rounds: 2, amount: fDefCut };
+          b._appliedThisRound.defDefDebuff = true;
+          b.log.unshift(head + '[화공 성공! 火攻] 불길이 적진을 휩쓴다 — 적 사기 -' + fMorale + ', 병력 -' + fBurn + ', 2라운드간 적 방어력 -' + Math.round(fDefCut * 100) + '%' + (b.isSiege ? ' (공성이라 위력 반감)' : ' (야전 화공!)'));
+        } else if (tac.id === 'water') {
+          var wBurn = Math.round(b.defTroops * (0.06 + (b.isSiege ? 0.07 : 0) + (to.defense / 2000)) * mag);
+          var wBleed = Math.max(1, Math.round(b.defMax * 0.02 * mag));
+          b.defTroops = Math.max(0, b.defTroops - wBurn);
+          b.defBleed = { rounds: 2, amount: wBleed };
+          b._appliedThisRound.defBleed = true;
+          b.defMorale = Math.max(0, b.defMorale - 8);
+          b.log.unshift(head + '[수공 성공! 水攻] 물길이 터져 적을 수몰시킨다 — 병력 -' + wBurn + ', 이후 2라운드 지속 피해 -' + wBleed + '/라운드');
+        } else if (tac.id === 'ambush') {
+          var vsCav = defMain === 'cavalry';
+          var aBurn = Math.round(b.defTroops * (b.isSiege ? 0.06 : 0.10) * (vsCav ? 1.5 : 1.0) * mag);
+          var aMorale = Math.round(12 + tIntel / 6);
+          b.defTroops = Math.max(0, b.defTroops - aBurn);
+          b.defMorale = Math.max(0, b.defMorale - aMorale);
+          b.log.unshift(head + '[매복 성공! 伏兵] 복병이 적을 기습한다 — 병력 -' + aBurn + ', 사기 -' + aMorale + (vsCav ? ' (적 기병을 함정에!)' : ''));
+        } else if (tac.id === 'discord') {
+          var dRounds = 2 + (supCount >= 2 ? 1 : 0);
+          var dAmount = Math.min(0.5, 0.15 + supCount * 0.08 + (tIntel - tDefIntel) / 500);
+          b.defAtkDebuff = { rounds: dRounds, amount: dAmount };
+          b._appliedThisRound.defAtkDebuff = true;
+          var dMorale = Math.round(6 + supCount * 2);
+          b.defMorale = Math.max(0, b.defMorale - dMorale);
+          b.log.unshift(head + '[이간계 성공! 離間計] 적장들이 서로를 의심한다 — ' + dRounds + '라운드간 적 공격력 -' + Math.round(dAmount * 100) + '%, 사기 -' + dMorale);
+        } else if (tac.id === 'confusion') {
+          b.defActionLocked = Math.max(b.defActionLocked || 0, 1);
+          b._appliedThisRound.defActionLocked = true;
+          var cMorale = Math.round(8 + tIntel / 8);
+          b.defMorale = Math.max(0, b.defMorale - cMorale);
+          b.log.unshift(head + '[혼란계 성공! 混亂計] 적진이 아수라장이 되었다 — 다음 라운드 적 반격 봉쇄, 사기 -' + cMorale);
+        } else if (tac.id === 'rumor') {
+          var rMorale = Math.round((20 + tIntel / 4) * (1 + mil * 0.05));
+          b.defMorale = Math.max(0, b.defMorale - rMorale);
+          b.log.unshift(head + '[허보 성공! 虛報] 유언비어가 적진에 퍼진다 — 적 사기 -' + rMorale);
+        } else {
+          // 알 수 없는 계략(데이터만 추가된 경우) — 보수적 사기 타격
+          var gMorale = Math.round(14 + tIntel / 5);
+          b.defMorale = Math.max(0, b.defMorale - gMorale);
+          b.log.unshift(head + '[' + tac.name + ' 성공! ' + tac.hanja + '] 적 사기 -' + gMorale);
+        }
+      } else {
+        // 실패 시 반계(backlash) — 계략별 차등
+        if (tags.backlash === 'low') {
+          b.atkMorale = Math.max(0, b.atkMorale - 3);
+          b.log.unshift(head + '[' + tac.name + ' 실패] 소문이 가라앉았다 — 아군 사기 -3');
+        } else if (tags.backlash === 'counter') {
+          // 이간계 실패: 적이 역이용해 결속 → 적 사기 상승 + 아군 소폭 하락
+          var bk = 6 + Math.round(tDefIntel / 12);
+          b.defMorale = Math.min(100, b.defMorale + bk);
+          b.atkMorale = Math.max(0, b.atkMorale - 5);
+          b.log.unshift(head + '[' + tac.name + ' 실패·반계!] 계략이 역이용당했다 — 적 사기 +' + bk + ', 아군 사기 -5');
+        } else if (tags.aggressive) {
+          // 화공/수공/매복 등 공세적 계략은 실패 대가가 크다
+          b.atkMorale = Math.max(0, b.atkMorale - 12);
+          b.log.unshift(head + '[' + tac.name + ' 실패] 계략이 간파당해 역습을 받았다 — 아군 사기 -12');
+        } else {
+          b.atkMorale = Math.max(0, b.atkMorale - 8);
+          b.log.unshift(head + '[' + tac.name + ' 실패] 계략이 간파당했다 — 아군 사기 -8');
+        }
+      }
+
       b.round++;
+      if (b.atkTacticCd > 0) b.atkTacticCd--;
       resolveRoundEnd(b, to);
       notify();
       return;
@@ -968,6 +1099,11 @@
 
     var atkPow = (genStat(b.atkGen, 'command', 60) * 0.5 + genStat(b.atkGen, 'force', 60) * 0.5) * supportBonus(b.atkSupport) * atkSkillMult;
     var defPow = (genStat(b.defGen, 'command', 55) * 0.5 + genStat(b.defGen, 'force', 55) * 0.5) * supportBonus(b.defSupport) * defSkillMult;
+
+    // 계략 지속효과: 적 공격력/방어력 저하 반영
+    var atkDeb = (b.defAtkDebuff && b.defAtkDebuff.rounds > 0) ? b.defAtkDebuff.amount : 0;
+    var defDeb = (b.defDefDebuff && b.defDefDebuff.rounds > 0) ? b.defDefDebuff.amount : 0;
+    defPow = defPow * (1 - atkDeb);           // 이간계: 적 반격 위력 감소
 
     // 전투 중 병종 사용으로 지휘관 기능 숙련 상승 (플레이어 무장 위주)
     if (atkG) gainSkillExp(atkG, unitSkillKey[mainUnit(b.atkComp)], 6, true);
@@ -989,14 +1125,19 @@
     var atkMult = action === 'attack' ? 1.2 : (action === 'special' ? 1.5 : 0.7);
     var defTakeMult = action === 'defend' ? 0.6 : 1.0;
 
+    // 방어력 저하 반영: defForm.def(피해 경감)를 깎는다(최소 0.3 보장)
+    var effDefDef = Math.max(0.3, defForm.def * (1 - defDeb));
+
     // 공격군 피해량 (진형 공격·상성·사기 반영)
     var dmgToDef = Math.round(
-      (b.atkTroops * 0.10) * (atkPow / 60) * atkMult * atkForm.atk * adv * atkMoraleMult * rand() / defForm.def
+      (b.atkTroops * 0.10) * (atkPow / 60) * atkMult * atkForm.atk * adv * atkMoraleMult * rand() / effDefDef
     );
     // 방어군 피해량
     var dmgToAtk = Math.round(
       (b.defTroops * 0.09) * (defPow / 60) * terrain * defTakeMult * defForm.atk * advDef * defMoraleMult * rand() / atkForm.def
     );
+    // 혼란계: 적 행동 봉쇄 중이면 적의 반격이 거의 무력화
+    if (b.defActionLocked > 0) dmgToAtk = Math.round(dmgToAtk * 0.1);
 
     b.defTroops = Math.max(0, b.defTroops - dmgToDef);
     b.atkTroops = Math.max(0, b.atkTroops - dmgToAtk);
@@ -1018,6 +1159,39 @@
 
   // 라운드 종료 판정: 전멸 또는 궤주(사기 붕괴) 또는 장기화
   function resolveRoundEnd(b, to) {
+    // 이번 라운드에 '방금' 적용된 타이머/쿨다운은 이 라운드 감소를 건너뛴다.
+    // → 광고된 지속 라운드/쿨다운이 실제 체감과 정확히 일치한다(off-by-one 제거).
+    var fresh = b._appliedThisRound || {};
+
+    // ── 계략 지속효과 처리: 지속 피해(수공) 적용 후 타이머 감소 ──
+    // 수공은 "이후 2라운드" 지속이므로 시전한 라운드에는 틱·감소를 모두 건너뛴다.
+    if (b.defBleed && b.defBleed.rounds > 0 && !fresh.defBleed) {
+      var bleed = b.defBleed.amount || 0;
+      if (bleed > 0) {
+        b.defTroops = Math.max(0, b.defTroops - bleed);
+        b.log.unshift('제' + b.round + '라운드 [수공 지속피해] 범람으로 적 병력 -' + bleed);
+      }
+      b.defBleed.rounds--;
+      if (b.defBleed.rounds <= 0) b.defBleed = { rounds: 0, amount: 0 };
+    }
+    if (b.defActionLocked > 0 && !fresh.defActionLocked) b.defActionLocked--;
+    if (b.defAtkDebuff && b.defAtkDebuff.rounds > 0 && !fresh.defAtkDebuff) {
+      b.defAtkDebuff.rounds--;
+      if (b.defAtkDebuff.rounds <= 0) b.defAtkDebuff = { rounds: 0, amount: 0 };
+    }
+    if (b.defDefDebuff && b.defDefDebuff.rounds > 0 && !fresh.defDefDebuff) {
+      b.defDefDebuff.rounds--;
+      if (b.defDefDebuff.rounds <= 0) b.defDefDebuff = { rounds: 0, amount: 0 };
+    }
+    // 계략별 쿨다운 감소(이번 라운드에 세팅한 계략은 제외 → 표시값이 실제 대기와 일치)
+    if (b.tacticCd) {
+      for (var tk in b.tacticCd) {
+        if (b.tacticCd.hasOwnProperty(tk) && b.tacticCd[tk] > 0 && !fresh['cd:' + tk]) b.tacticCd[tk]--;
+      }
+    }
+    // 다음 라운드부터는 모든 타이머가 정상적으로 감소하도록 '방금 적용' 표식을 비운다.
+    b._appliedThisRound = {};
+
     // 궤주 판정: 사기 0 이하이고 병력이 상대보다 열세면 패주
     if (b.defTroops <= 0) {
       b.over = true; b.result = 'win';
@@ -1047,6 +1221,14 @@
 
   // 진형 변경(공개 액션용 래퍼)
   function setBattleFormation(f) { battleAction('form:' + f); }
+
+  // 계략 선택 메뉴 토글(UI 전용 임시 플래그 — 순수 데이터)
+  function toggleTacticMenu(force) {
+    var b = state.battle;
+    if (!b || b.over) return;
+    b._tacticMenuOpen = (typeof force === 'boolean') ? force : !b._tacticMenuOpen;
+    notify();
+  }
 
   function applyBattleResult() {
     var b = state.battle;
@@ -1806,6 +1988,17 @@
     var atkScore = deploy * (atkPow / 60) * adv;
     var defScore = targetCity.troops * (defPow / 60) * terrain;
 
+    // 계략(計略) 보정: 지력 높은 공격 주장은 '묘책'으로 소폭 우위를 얻는다.
+    // 플레이어 전투처럼 라운드 UI가 없는 즉결 판정이므로, 밸런스를 위해 작은 보너스만 준다.
+    // 지력 60 기준 0%, 100이면 약 +6%, 군학(軍學) 기능 레벨당 +1.5% (합산 상한 +12%).
+    // 수비 주장의 지력이 높으면 그만큼 상쇄되어, 지략가가 지키는 성은 쉽게 뚫리지 않는다.
+    var atkIntel = atkGen ? effStat(atkGen, 'intellect') : 55;
+    var defIntel = defGen ? effStat(defGen, 'intellect') : 55;
+    var atkMil = atkGen ? skillLevel(atkGen, 'military') : 0;
+    var stratEdge = Math.max(0, (atkIntel - defIntel) / 60) * 0.09 + atkMil * 0.015;
+    stratEdge = Math.max(0, Math.min(0.12, stratEdge));
+    atkScore = atkScore * (1 + stratEdge);
+
     if (atkScore > defScore * 1.05) {
       // 공격 성공
       var loss = Math.round(targetCity.troops * (0.6 + Math.random() * 0.3));
@@ -2281,8 +2474,11 @@
     startBattle: startBattle,
     battleAction: battleAction,
     setBattleFormation: setBattleFormation,
+    toggleTacticMenu: toggleTacticMenu,
     endBattle: endBattle,
     FORMATIONS: FORMATIONS,
+    TACTICS: (global.SAMGUK && global.SAMGUK.TACTICS) || [],
+    tacticById: (global.SAMGUK && global.SAMGUK.tacticById) || function () { return null; },
     composition: composition,
     mainUnit: mainUnit,
     unitAdvantage: unitAdvantage,
