@@ -74,6 +74,7 @@
       items = [
         { name: '근무', overlay: 'officer', icon: '📋' },
         { name: '무장', overlay: 'generals', icon: '⚔' },
+        { name: '모략', overlay: 'scheme', icon: '🕯' },
         { name: '연표', overlay: 'log', icon: '📜' },
         { name: '저장', overlay: 'saveload', icon: '💾' }
       ];
@@ -82,6 +83,7 @@
         { name: '무장', overlay: 'generals', icon: '⚔' },
         { name: '등용', overlay: 'recruit', icon: '🤝' },
         { name: '외교', overlay: 'diplomacy', icon: '🕊' },
+        { name: '모략', overlay: 'scheme', icon: '🕯' },
         { name: '연표', overlay: 'log', icon: '📜' },
         { name: '저장', overlay: 'saveload', icon: '💾' }
       ];
@@ -120,6 +122,14 @@
       var g = store.generalById(id); return g ? g.name : '';
     }).filter(Boolean).join(', ') || '없음';
 
+    // 모략 진입 버튼: 아군 성이 아닌(적/중립) 성에서만 노출. 선택 성을 기본 대상으로 유지.
+    function schemeBtn() {
+      return el('button.btn.btn-scheme', { text: '🕯 모략', onClick: function () {
+        store.selectCity(c.id);
+        store.openOverlay('scheme');
+      } });
+    }
+
     var actions;
     if (state.playMode === 'officer') {
       // 장수제: 소속 세력 성이고 장군 이상이면 태수 부임 가능
@@ -128,8 +138,11 @@
         actions = [
           el('button.btn.btn-primary', { text: '태수 부임', onClick: function () { store.officerBecomeGovernor(c.id); } })
         ];
-      } else {
+      } else if (c.kingdom === faction) {
         actions = [el('div.city-info-note', { text: '장수제에서는 근무 명령으로 공을 세우세요.' })];
+      } else {
+        // 적/중립 성: 모략 진입
+        actions = [schemeBtn()];
       }
     } else if (mine) {
       actions = [
@@ -137,9 +150,10 @@
         el('button.btn.btn-danger', { text: '출병', onClick: function () { openAttackChooser(c); } })
       ];
     } else {
-      // 인접 아군 성에서 공격 가능
+      // 적/중립 성: 인접 아군 성에서 공격 가능 + 모략 진입
       actions = [
-        el('button.btn.btn-danger', { text: '공격', onClick: function () { openAttackChooser(c); } })
+        el('button.btn.btn-danger', { text: '공격', onClick: function () { openAttackChooser(c); } }),
+        schemeBtn()
       ];
     }
 
@@ -223,6 +237,7 @@
     else if (state.overlay === 'debate') body = S.Overlays.debate(state);
     else if (state.overlay === 'recruit') body = S.Overlays.recruit(state);
     else if (state.overlay === 'officer') body = S.Overlays.officer(state);
+    else if (state.overlay === 'scheme') body = S.Overlays.scheme(state);
     else if (state.overlay === 'saveload') body = S.Overlays.saveload(state);
     else if (state.overlay === 'log') body = renderFullLog(state);
     else return null;

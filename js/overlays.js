@@ -283,7 +283,11 @@
       el('div.generals-section-title', { text: K(pk).name + ' 무장' }),
       el('div.generals-grid', null, mine.map(function (g) { return card(g, false); })),
       el('div.generals-section-title', { text: '타국 무장 (첩보)' }),
-      el('div.generals-grid', null, enemy.map(function (g) { return card(g, true); }))
+      el('div.generals-grid', null, enemy.map(function (g) {
+        // 세작(sabotage)으로 첩보가 공개된 국가의 무장은 능력치를 열람할 수 있다.
+        var revealed = state.intel && state.intel[g.kingdom];
+        return card(g, !revealed);
+      }))
     ]);
   }
 
@@ -771,6 +775,181 @@
     ]);
   }
 
+  // ============ 모략(謀略) · 전투 밖 전략 계략 ============
+  function scheme(state) {
+    var officerMode = state.playMode === 'officer';
+    var STAT_LABEL = { intellect: '지력', politics: '정치' };
+
+    // 대상 후보(FEAT-001 store 셀렉터)
+    var cities = store.schemeTargetCities();
+    var kingdoms = store.schemeTargetKingdoms();
+    var gens = store.schemeTargetGenerals();
+
+    function kname(k) { return K(k) ? K(k).name : k; }
+
+    // 주체 무장 요약(계략별 focusStat 가 다르므로 대표로 지력/정치 각각 안내)
+    function agentSummary() {
+      var chips = [];
+      ['intellect', 'politics'].forEach(function (focus) {
+        var ag = store.schemeAgent({ focusStat: focus });
+        chips.push(el('div.res-chip', null, [
+          el('span.res-k', { text: STAT_LABEL[focus] + ' 주체' }),
+          el('span.res-v', { text: ag ? (ag.name + ' (' + store.effStat(ag, focus) + ')') : '없음' })
+        ]));
+      });
+      return chips;
+    }
+
+    // 자원/턴 요약
+    function resourceSummary() {
+      var chips = [];
+      if (officerMode) {
+        chips.push(el('div.res-chip', null, [el('span.res-k', { text: '재산' }), el('span.res-v', { text: state.personalGold.toLocaleString() })]));
+        chips.push(el('div.res-chip', null, [el('span.res-k', { text: '공훈' }), el('span.res-v', { text: String(state.merit) })]));
+        chips.push(el('div.res-chip', null, [el('span.res-k', { text: '행동' }), el('span.res-v', { text: state.actedThisTurn ? '소진' : '가능' })]));
+      } else {
+        var pk = state.playerKingdom;
+        var used = state.schemesUsedThisTurn || 0;
+        var cap = store.SCHEMES_PER_TURN_RULER || 2;
+        chips.push(el('div.res-chip', null, [el('span.res-k', { text: '국고' }), el('span.res-v', { text: (state.gold[pk] || 0).toLocaleString() })]));
+        chips.push(el('div.res-chip', null, [el('span.res-k', { text: '이번 턴' }), el('span.res-v', { text: used + ' / ' + cap + '회' })]));
+      }
+      return chips;
+    }
+
+    // targetType 별 대상 select + 성공률/실행
+    function schemeRow(sc) {
+      var cd = store.schemeCooldown(sc.id);
+      var blocked = store.schemeBlockReason(sc.id); // null 이면 사용 가능
+      var costText = officerMode ? (sc.costGold.toLocaleString() + '금') : (sc.costGold.toLocaleString() + '금');
+
+      // 대상 select 구성
+      var selA = null, selB = null, controls = [], ctxBuilder;
+      if (sc.targetType === 'city') {
+        selA = el('select.scheme-select');
+        if (!cities.length) { var oc = document.createElement('option'); oc.textContent = '대상 성 없음'; oc.value = ''; selA.appendChild(oc); }
+        cities.forEach(function (c) {
+          var o = document.createElement('option'); o.value = c.id;
+          o.textContent = c.name + ' (' + kname(c.kingdom) + ')';
+          selA.appendChild(o);
+        });
+        if (state.selectedCityId) {
+          var pre = cities.filter(function (c) { return c.id === state.selectedCityId; });
+          if (pre.length) selA.value = state.selectedCityId;
+        }
+        controls.push(selA);
+        ctxBuilder = function () {
+          var c = store.cityById(selA.value);
+          return { targetType: 'city', city: c };
+        };
+      } else if (sc.targetType === 'general') {
+        selA = el('select.scheme-select');
+        if (!gens.length) { var og = document.createElement('option'); og.textContent = '대상 무장 없음'; og.value = ''; selA.appendChild(og); }
+        gens.forEach(function (g) {
+          var o = document.createElement('option'); o.value = g.id;
+          o.textContent = g.name + ' (' + kname(g.kingdom) + ' · 충' + g.loyalty + ')';
+          selA.appendChild(o);
+        });
+        controls.push(selA);
+        ctxBuilder = function () {
+          var g = store.generalById(selA.value);
+          return { targetType: 'general', general: g };
+        };
+      } else if (sc.id === 'discord') {
+        selA = el('select.scheme-select');
+        selB = el('select.scheme-select');
+        kingdoms.forEach(function (k) {
+          var oa = document.createElement('option'); oa.value = k; oa.textContent = kname(k); selA.appendChild(oa);
+          var ob = document.createElement('option'); ob.value = k; ob.textContent = kname(k); selB.appendChild(ob);
+        });
+        if (kingdoms.length > 1) selB.selectedIndex = 1;
+        controls.push(selA, el('span.scheme-amp', { text: '⨯' }), selB);
+        ctxBuilder = function () {
+          return { targetType: 'kingdom', kingdomA: selA.value, kingdomB: selB.value };
+        };
+      } else { // kingdom (sabotage)
+        selA = el('select.scheme-select');
+        if (!kingdoms.length) { var ok = document.createElement('option'); ok.textContent = '대상 적국 없음'; ok.value = ''; selA.appendChild(ok); }
+        kingdoms.forEach(function (k) {
+          var o = document.createElement('option'); o.value = k; o.textContent = kname(k); selA.appendChild(o);
+        });
+        controls.push(selA);
+        ctxBuilder = function () {
+          return { targetType: 'kingdom', kingdom: selA.value };
+        };
+      }
+
+      // 예상 성공률(현재 선택값 기준).
+      function currentCtx() { return ctxBuilder(); }
+      function currentHasTarget() {
+        return sc.id === 'discord'
+          ? !!(selA.value && selB.value && selA.value !== selB.value)
+          : !!(selA && selA.value);
+      }
+
+      var chanceEl = el('span.scheme-chance');
+      var reasonEl = el('span.scheme-reason');
+      var runBtn = el('button.btn.btn-primary.scheme-run', { onClick: function () {
+        var c2 = currentCtx();
+        if (sc.id === 'discord') store.executeScheme(sc.id, c2.kingdomA, c2.kingdomB);
+        else if (sc.targetType === 'city') store.executeScheme(sc.id, c2.city ? c2.city.id : null);
+        else if (sc.targetType === 'general') store.executeScheme(sc.id, c2.general ? c2.general.id : null);
+        else store.executeScheme(sc.id, c2.kingdom);
+      } }, [el('span', { text: '실행' })]);
+
+      // 선택값 기준으로 성공률/실행버튼/사유를 갱신(전체 재렌더 없이 로컬 갱신)
+      function refresh() {
+        var cc = store.schemeChance(sc, currentCtx());
+        chanceEl.textContent = '성공률 ' + Math.round(cc.chance * 100) + '%';
+        var hasTarget = currentHasTarget();
+        var disabled = !!blocked || !hasTarget;
+        runBtn.disabled = disabled;
+        var reasonText = blocked ? blocked : (!hasTarget ? '대상을 선택하세요.' : '');
+        reasonEl.textContent = reasonText;
+      }
+      controls.forEach(function (ctrl) {
+        if (ctrl.tagName === 'SELECT') ctrl.onchange = function () {
+          // 성(城) 대상은 지도 선택 상태도 유지
+          if (sc.targetType === 'city' && ctrl === selA && selA.value) store.selectCity(selA.value);
+          refresh();
+        };
+      });
+      refresh();
+
+      return el('div.scheme-row', null, [
+        el('div.scheme-row-head', null, [
+          el('span.scheme-icon', { text: sc.icon }),
+          el('div.scheme-id', null, [
+            el('div.scheme-name', { text: sc.name + ' · ' + sc.hanja }),
+            el('div.scheme-desc', { text: sc.desc })
+          ])
+        ]),
+        el('div.scheme-meta', null, [
+          el('span.scheme-cost', { text: '코스트 ' + costText }),
+          chanceEl,
+          cd > 0 ? el('span.scheme-cd', { text: '대기 ' + cd + '턴' }) : el('span.scheme-cd.ready', { text: '사용 가능' })
+        ]),
+        el('div.scheme-target', null, controls),
+        el('div.scheme-run-row', null, [
+          runBtn,
+          reasonEl
+        ])
+      ]);
+    }
+
+    var schemes = store.SCHEMES || [];
+    return el('div.overlay-panel.scheme-panel', null, [
+      head('모략 · 謀略'),
+      el('div.scheme-body', null, [
+        el('div.scheme-summary', null, agentSummary().concat(resourceSummary())),
+        el('div.scheme-hint', { text: officerMode
+          ? '모략은 1턴에 1회(근무 행동 소비) 수행할 수 있습니다. 개인 재산으로 비용을 치릅니다.'
+          : '모략은 1턴에 ' + (store.SCHEMES_PER_TURN_RULER || 2) + '회까지 수행할 수 있습니다. 국고로 비용을 치릅니다.' }),
+        el('div.scheme-list', null, schemes.map(schemeRow))
+      ])
+    ]);
+  }
+
   // ============ 세이브 / 로드 ============
   // mode: 'full'(저장+불러오기, 게임 중) | 'load'(불러오기 전용, 타이틀)
   function saveload(state) {
@@ -840,6 +1019,7 @@
     debate: debate,
     recruit: recruit,
     officer: officer,
+    scheme: scheme,
     saveload: saveload
   };
 })(window);

@@ -454,6 +454,37 @@ body {
 }
 .sworn-amp { color: var(--gold-light); font-size: 20px; }
 
+/* ===== 모략(謀略) · 전투 밖 전략 계략 ===== */
+.scheme-panel { width: min(840px, 94vw); }
+.scheme-body { padding: 10px 20px 18px; }
+.scheme-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.scheme-hint { font-size: 12px; color: var(--parchment-dark); line-height: 1.6; margin-bottom: 14px; }
+.scheme-list { display: flex; flex-direction: column; gap: 14px; }
+.scheme-row {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; background: rgba(0,0,0,0.25);
+}
+.scheme-row-head { display: flex; align-items: flex-start; gap: 10px; }
+.scheme-icon { font-size: 22px; line-height: 1.2; }
+.scheme-name { font-size: 15px; color: var(--gold-light); letter-spacing: 1px; }
+.scheme-desc { font-size: 12px; color: var(--parchment-dark); line-height: 1.6; margin-top: 2px; }
+.scheme-meta { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 8px; font-size: 13px; }
+.scheme-cost { color: var(--parchment); }
+.scheme-chance { color: var(--gold); font-weight: bold; }
+.scheme-cd { color: #c0392b; }
+.scheme-cd.ready { color: #6ab04c; }
+.scheme-target { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.scheme-amp { color: var(--gold-light); font-size: 18px; }
+.scheme-select {
+  font-family: inherit; font-size: 14px; min-width: 160px;
+  background: #1a1206; color: var(--parchment);
+  border: 1px solid var(--border); border-radius: 4px; padding: 7px 10px;
+}
+.scheme-run-row { display: flex; align-items: center; gap: 12px; }
+.scheme-run { min-width: 96px; }
+.scheme-reason { font-size: 12px; color: #c0392b; }
+.btn-scheme { background: rgba(70, 40, 90, 0.5); border-color: var(--border); }
+
 /* ===== 턴 결과 보고 팝업 (재해 / 합종연횡) ===== */
 .report-scroll { text-align: left; }
 .report-scroll .event-name { text-align: center; }

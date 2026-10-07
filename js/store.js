@@ -271,7 +271,11 @@
       debate: null,          // 설전(논쟁) 상태
       recruitTargetId: null, // 등용 대상 무장 id
       pendingReport: null,   // 재해/반란 등 턴 결과 보고
-      tournament: null       // 무투대회 상태
+      tournament: null,      // 무투대회 상태
+      // ── 전략 계략(謀略) : 전투 밖 모략 ──
+      schemeCd: {},          // 계략별 쿨다운 { schemeId: 남은턴 }
+      schemesUsedThisTurn: 0,// 이번 턴에 사용한 계략 횟수(군주제 턴당 제한)
+      intel: {}              // 세작으로 밝혀진 적국 id 맵 { kingdomId: true }
     };
   }
 
@@ -1669,6 +1673,354 @@
     notify();
   }
 
+  // ====================================================================
+  //  전략 계략(謀略) — 전투 밖(지도/턴 단위) 모략
+  //  - 데이터: data/schemes.js (SCHEMES / schemeById)
+  //  - 적 성(민심·치안·병력), 적국(외교·첩보), 적 무장(충성)을 대상으로 턴 단위로 건다.
+  //  - 군주제: 국고(gold[playerKingdom]) + 주체=최고 지력/정치 아군 무장
+  //  - 장수제: 개인재산(personalGold) + 공훈(merit) + 주체=본인 (턴당 1행동 소비)
+  //  - 전투 내 계략(TACTICS/battleAction)과 완전히 분리된 체계
+  // ====================================================================
+  var SCHEMES_PER_TURN_RULER = 2; // 군주제 턴당 계략 사용 한도
+
+  function schemeById(id) {
+    if (global.SAMGUK && typeof global.SAMGUK.schemeById === 'function') return global.SAMGUK.schemeById(id);
+    return null;
+  }
+  function schemeList() { return (global.SAMGUK && global.SAMGUK.SCHEMES) || []; }
+
+  // 계략 주체(실행 무장) 선정.
+  //  군주제 = 플레이어 세력에서 focusStat(지력/정치)이 가장 높은 아군 무장(effStat 기준).
+  //           없으면 군주(RULERS[playerKingdom]), 그래도 없으면 null.
+  //  장수제 = state.playerGeneralId 본인.
+  function schemeAgent(scheme) {
+    var focus = (scheme && scheme.focusStat) || 'intellect';
+    if (state.playMode === 'officer') {
+      return generalById(state.playerGeneralId) || null;
+    }
+    var pk = state.playerKingdom;
+    if (!pk) return null;
+    var best = null, bestVal = -1;
+    state.generals.forEach(function (g) {
+      if (g.kingdom !== pk) return;
+      var v = effStat(g, focus);
+      if (v > bestVal) { bestVal = v; best = g; }
+    });
+    if (best) return best;
+    if (S.RULERS && S.RULERS[pk]) return generalById(S.RULERS[pk]);
+    return null;
+  }
+
+  // 대상 저항값 산정.
+  //  ctx: { targetType, city, general, kingdom, kingdomA, kingdomB }
+  function schemeResistance(scheme, ctx) {
+    if (!ctx) return 50;
+    if (ctx.targetType === 'city' && ctx.city) {
+      return ((ctx.city.defense || 0) + (ctx.city.popularity || 0)) / 2;
+    }
+    if (ctx.targetType === 'general' && ctx.general) {
+      return effStat(ctx.general, 'intellect');
+    }
+    if (ctx.targetType === 'kingdom') {
+      if (scheme && scheme.id === 'discord' && ctx.kingdomA && ctx.kingdomB) {
+        return (kingdomTopIntellect(ctx.kingdomA) + kingdomTopIntellect(ctx.kingdomB)) / 2;
+      }
+      if (ctx.kingdom) return kingdomTopIntellect(ctx.kingdom);
+    }
+    return 50;
+  }
+
+  // 적국 성들에 배치된 무장 중 최고 지력(없으면 성 수 기반 간이값)
+  function kingdomTopIntellect(k) {
+    var best = 0;
+    state.generals.forEach(function (g) {
+      if (g.kingdom !== k) return;
+      var v = effStat(g, 'intellect');
+      if (v > best) best = v;
+    });
+    if (best > 0) return best;
+    return Math.min(80, 40 + citiesOf(k).length * 5); // 무장 없음 → 성 수 기반
+  }
+
+  // 성공률 공식: baseChance + (주체 effStat(focus) - 대상 저항)/200, [0.05, 0.95] 클램프.
+  //  변설(rhetoric)·군학(military)은 소폭(과하지 않게) 보정.
+  //  반환: { chance, agentStat, resistance, base } (로그/보고용)
+  function schemeChance(scheme, ctx) {
+    if (!scheme) return { chance: 0.05, agentStat: 0, resistance: 0, base: 0 };
+    var agent = (ctx && ctx.agent) || schemeAgent(scheme);
+    var focus = scheme.focusStat || 'intellect';
+    var agentStat = agent ? effStat(agent, focus) : 40;
+    var resist = schemeResistance(scheme, ctx);
+    var chance = scheme.baseChance + (agentStat - resist) / 200;
+    // 기능 보정: 변설/군학 레벨당 소폭(+1.5%, 합산 상한 +6%)
+    if (agent) {
+      var bonus = (skillLevel(agent, 'rhetoric') + skillLevel(agent, 'military')) * 0.015;
+      chance += Math.min(0.06, bonus);
+    }
+    chance = Math.max(0.05, Math.min(0.95, chance));
+    return { chance: chance, agentStat: agentStat, resistance: resist, base: scheme.baseChance };
+  }
+
+  // 쿨다운 조회
+  function schemeCooldown(schemeId) {
+    return (state.schemeCd && state.schemeCd[schemeId]) || 0;
+  }
+
+  // 사용 가능 여부(공통 가드). 사유 문자열 반환(가능하면 null).
+  function schemeBlockReason(schemeId) {
+    var scheme = schemeById(schemeId);
+    if (!scheme) return '알 수 없는 계략입니다.';
+    if (schemeCooldown(schemeId) > 0) return scheme.name + '은(는) 재사용 대기 중입니다. (' + schemeCooldown(schemeId) + '턴)';
+    if (state.playMode === 'officer') {
+      if (state.actedThisTurn) return '이번 턴에는 이미 근무했습니다.';
+      if (state.personalGold < scheme.costGold) return '재산이 부족합니다. (' + scheme.costGold + '금 필요)';
+    } else {
+      if ((state.schemesUsedThisTurn || 0) >= SCHEMES_PER_TURN_RULER) return '이번 턴 계략 횟수를 모두 사용했습니다.';
+      var pk = state.playerKingdom;
+      if (!pk || (state.gold[pk] || 0) < scheme.costGold) return '국고가 부족합니다. (' + scheme.costGold + '금 필요)';
+    }
+    if (!schemeAgent(scheme)) return '계략을 수행할 무장이 없습니다.';
+    return null;
+  }
+  function canUseScheme(schemeId) { return schemeBlockReason(schemeId) === null; }
+
+  // ── 대상 후보 셀렉터 (UI/FEAT-002 용) ──
+  function schemeTargetCities() { // 적 성 목록(중립 제외)
+    var pk = state.playerKingdom;
+    return state.cities.filter(function (c) {
+      return c.kingdom !== pk && c.kingdom !== 'neutral';
+    });
+  }
+  function schemeTargetKingdoms() { // 적국 목록(성 보유, 중립 제외)
+    var pk = state.playerKingdom;
+    return S.KINGDOM_ORDER.filter(function (k) {
+      return k !== pk && k !== 'neutral' && citiesOf(k).length > 0;
+    });
+  }
+  function schemeTargetGenerals() { // 적 무장 목록(중립/재야 제외)
+    var pk = state.playerKingdom;
+    return state.generals.filter(function (g) {
+      return g.kingdom !== pk && g.kingdom !== 'neutral' && !g.free;
+    });
+  }
+
+  function clampStat(v) { return Math.max(0, Math.min(100, v)); }
+  function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+
+  // 두 세력 사이 외교 relation 을 대칭으로 delta 만큼 조정(동맹이면 흔들기)
+  function adjustRelation(a, b, delta) {
+    if (!a || !b || a === b) return;
+    var ab = state.diplomacy[a] && state.diplomacy[a][b];
+    var ba = state.diplomacy[b] && state.diplomacy[b][a];
+    if (!ab || !ba) return;
+    var rel = Math.max(-100, Math.min(100, ab.relation + delta));
+    ab.relation = rel; ba.relation = rel;
+    if (delta < 0 && rel < -40 && ab.alliance) { // 관계가 크게 나빠지면 동맹 흔들기
+      ab.alliance = false; ba.alliance = false;
+    }
+  }
+
+  // 코스트 차감 + 가드 소비(모드별). 성공 시 true.
+  function spendSchemeCost(scheme) {
+    if (state.playMode === 'officer') {
+      state.personalGold -= scheme.costGold;
+      state.actedThisTurn = true;
+    } else {
+      state.gold[state.playerKingdom] -= scheme.costGold;
+    }
+    return true;
+  }
+
+  // 사용 후 마무리: 쿨다운/횟수/경험치/보고
+  function finalizeScheme(scheme, agent, report) {
+    state.schemeCd[scheme.id] = scheme.cooldown;
+    if (state.playMode !== 'officer') state.schemesUsedThisTurn = (state.schemesUsedThisTurn || 0) + 1;
+    // 주체 무장 소량 숙련(지력/정치 계열)
+    if (agent) {
+      gainGeneralExp(agent, 6, true);
+      gainSkillExp(agent, scheme.focusStat === 'politics' ? 'rhetoric' : 'military', 8, true);
+    }
+    state.pendingReport = { lines: report };
+    checkEndConditions();
+    notify();
+  }
+
+  // 실제 효과 적용.
+  //  schemeId      : 계략 id
+  //  targetId      : 성 id | 무장 id | 적국 id (discord 의 1차 대상국)
+  //  secondTargetId: discord 의 2차 대상국 id
+  function executeScheme(schemeId, targetId, secondTargetId) {
+    var scheme = schemeById(schemeId);
+    if (!scheme) { toast('알 수 없는 계략입니다.'); notify(); return false; }
+    var reason = schemeBlockReason(schemeId);
+    if (reason) { toast(reason); notify(); return false; }
+
+    var agent = schemeAgent(scheme);
+    if (!agent) { toast('계략을 수행할 무장이 없습니다.'); notify(); return false; }
+
+    // 대상 컨텍스트 구성 + 유효성 검사
+    var ctx = { targetType: scheme.targetType, agent: agent };
+    var targetName = '';
+    if (scheme.targetType === 'city') {
+      var city = cityById(targetId);
+      if (!city || city.kingdom === state.playerKingdom || city.kingdom === 'neutral') { toast('대상 성이 올바르지 않습니다.'); notify(); return false; }
+      ctx.city = city; targetName = city.name;
+    } else if (scheme.targetType === 'general') {
+      var gen = generalById(targetId);
+      if (!gen || gen.kingdom === state.playerKingdom || gen.kingdom === 'neutral' || gen.free) { toast('대상 무장이 올바르지 않습니다.'); notify(); return false; }
+      ctx.general = gen; targetName = gen.name;
+    } else if (scheme.targetType === 'kingdom') {
+      if (scheme.id === 'discord') {
+        var kA = targetId, kB = secondTargetId;
+        if (!kA || !kB || kA === kB || kA === state.playerKingdom || kB === state.playerKingdom ||
+            !state.diplomacy[kA] || !state.diplomacy[kA][kB]) { toast('이간할 두 적국을 올바르게 지정하세요.'); notify(); return false; }
+        ctx.kingdomA = kA; ctx.kingdomB = kB;
+        targetName = (S.KINGDOMS[kA] ? S.KINGDOMS[kA].name : kA) + ' · ' + (S.KINGDOMS[kB] ? S.KINGDOMS[kB].name : kB);
+      } else {
+        var k = targetId;
+        if (!k || k === state.playerKingdom || k === 'neutral' || !S.KINGDOMS[k] || citiesOf(k).length === 0) { toast('대상 적국이 올바르지 않습니다.'); notify(); return false; }
+        ctx.kingdom = k; targetName = S.KINGDOMS[k].name;
+      }
+    }
+
+    spendSchemeCost(scheme);
+
+    var cc = schemeChance(scheme, ctx);
+    var success = Math.random() < cc.chance;
+    var pct = Math.round(cc.chance * 100);
+    var lines = [];
+    var head = scheme.icon + ' ' + scheme.name + ' (' + scheme.hanja + ') — ' + targetName;
+
+    if (success) {
+      applySchemeSuccess(scheme, ctx, lines);
+      lines.unshift({ title: head, text: agent.name + '의 계략이 적중했다! (성공률 ' + pct + '%)' });
+      toast(scheme.name + ' 성공!');
+    } else {
+      applySchemeBacklash(scheme, ctx, agent, lines);
+      lines.unshift({ title: head, text: agent.name + '의 계략이 실패했다. (성공률 ' + pct + '%)' });
+      toast(scheme.name + ' 실패...');
+    }
+
+    finalizeScheme(scheme, agent, lines);
+    return success;
+  }
+
+  // 성공 효과
+  function applySchemeSuccess(scheme, ctx, lines) {
+    if (scheme.id === 'rumor') {
+      var c = ctx.city;
+      var dp = randInt(10, 16), dd = randInt(6, 10);
+      c.popularity = clampStat(c.popularity - dp);
+      c.defense = clampStat(c.defense - dd);
+      lines.push({ title: '유언비어', text: c.name + '에 헛소문이 퍼져 민심 -' + dp + ', 치안 -' + dd + '.' });
+      pushLog('[모략] ' + c.name + '에 유언비어가 돌아 민심이 흔들렸다.');
+    } else if (scheme.id === 'incite') {
+      var ci = ctx.city;
+      var lossFrac = (8 + Math.random() * 6) / 100; // 8~14%
+      var tLoss = Math.round(ci.troops * lossFrac);
+      ci.troops = Math.max(0, ci.troops - tLoss);
+      var dp2 = randInt(14, 20);
+      ci.popularity = clampStat(ci.popularity - dp2);
+      var owner = ci.kingdom;
+      var goldLoss = 0;
+      if (state.gold[owner] != null) {
+        goldLoss = Math.min(state.gold[owner], randInt(300, 700));
+        state.gold[owner] = Math.max(0, state.gold[owner] - goldLoss);
+      }
+      lines.push({ title: '선동', text: ci.name + '에서 반란이 일어나 병력 -' + tLoss.toLocaleString() + ', 민심 -' + dp2 + (goldLoss ? (', 국고 -' + goldLoss) : '') + '.' });
+      pushLog('[모략] ' + ci.name + '에서 반란이 선동되어 큰 혼란이 일었다.');
+    } else if (scheme.id === 'sabotage') {
+      state.intel[ctx.kingdom] = true;
+      lines.push({ title: '세작', text: (S.KINGDOMS[ctx.kingdom] ? S.KINGDOMS[ctx.kingdom].name : ctx.kingdom) + '의 무장·병력 정보를 입수했다. (첩보 공개)' });
+      pushLog('[모략] 세작이 ' + (S.KINGDOMS[ctx.kingdom] ? S.KINGDOMS[ctx.kingdom].name : ctx.kingdom) + '의 내정을 염탐했다.');
+    } else if (scheme.id === 'discord') {
+      var dr = randInt(12, 20);
+      adjustRelation(ctx.kingdomA, ctx.kingdomB, -dr);
+      lines.push({ title: '이간계', text: (S.KINGDOMS[ctx.kingdomA] ? S.KINGDOMS[ctx.kingdomA].name : ctx.kingdomA) + '와(과) ' + (S.KINGDOMS[ctx.kingdomB] ? S.KINGDOMS[ctx.kingdomB].name : ctx.kingdomB) + '의 관계가 -' + dr + ' 악화됐다.' });
+      pushLog('[모략] 이간계로 두 적국 사이에 불화가 싹텄다.');
+    } else if (scheme.id === 'bribe') {
+      var g = ctx.general;
+      var dl = randInt(14, 22);
+      g.loyalty = Math.max(0, g.loyalty - dl);
+      lines.push({ title: '매수', text: g.name + '의 충성이 -' + dl + ' (현재 ' + g.loyalty + ').' + (g.loyalty <= 45 ? ' 등용이 가능해졌다!' : '') });
+      pushLog('[모략] ' + g.name + '을(를) 매수하여 충성이 흔들렸다.');
+    }
+  }
+
+  // 실패 역효과(발각). 모든 수치는 클램프.
+  function applySchemeBacklash(scheme, ctx, agent, lines) {
+    var sev = (scheme.backlash && scheme.backlash.severity) || 'mid';
+    // 발각 대상국 결정
+    var exposedK = null;
+    if (ctx.targetType === 'city' && ctx.city) exposedK = ctx.city.kingdom;
+    else if (ctx.targetType === 'general' && ctx.general) exposedK = ctx.general.kingdom;
+    else if (ctx.kingdom) exposedK = ctx.kingdom;
+    else if (ctx.kingdomA) exposedK = ctx.kingdomA;
+
+    // 세작은 은밀(covert): 발각돼도 관계 악화 없음
+    var covert = scheme.backlash && scheme.backlash.covert;
+    if (exposedK && exposedK !== state.playerKingdom && !covert) {
+      var rd = randInt(8, 12);
+      adjustRelation(state.playerKingdom, exposedK, -rd);
+      lines.push({ title: '발각', text: (S.KINGDOMS[exposedK] ? S.KINGDOMS[exposedK].name : exposedK) + '에 발각되어 관계가 -' + rd + ' 악화됐다.' });
+    }
+
+    // 자원/충성 손실
+    if (state.playMode === 'officer') {
+      var ml = sev === 'high' ? randInt(5, 9) : randInt(2, 5);
+      state.merit = Math.max(0, state.merit - ml);
+      lines.push({ title: '역효과', text: '공작이 틀어져 공훈 -' + ml + '.' });
+    } else {
+      if (sev === 'high' || sev === 'mid') {
+        var gl = Math.min(state.gold[state.playerKingdom] || 0, sev === 'high' ? randInt(300, 500) : randInt(150, 300));
+        state.gold[state.playerKingdom] = Math.max(0, (state.gold[state.playerKingdom] || 0) - gl);
+        if (gl) lines.push({ title: '역효과', text: '뒷돈이 새어나가 국고 -' + gl + '.' });
+      }
+      if (agent) {
+        var la = randInt(2, 5);
+        agent.loyalty = clampStat((agent.loyalty || 60) - la);
+        lines.push({ title: '역효과', text: agent.name + '의 충성이 -' + la + '.' });
+      }
+    }
+    pushLog('[모략] ' + scheme.name + ' 공작이 실패로 돌아갔다.');
+  }
+
+  // ── 선택적 AI 계략 (플레이어 세력 대상, 소극적) ──
+  // runAI 말미에서 호출. 난이도별 낮은 확률로 플레이어 성 민심/무장 충성을 소폭 깎는다.
+  function aiRunSchemes() {
+    var pk = state.playerKingdom;
+    if (!pk) return;
+    var cfg = aiCfg();
+    var ramp = Math.min(1, state.turn / 15);
+    // 난이도 반영: gangUp 기반 소극 확률
+    var chance = cfg.gangUp * 0.5 * ramp;
+    AI_KINGDOMS.forEach(function (k) {
+      if (k === pk || isPlayerControlled(k) || k === 'neutral') return;
+      if (citiesOf(k).length === 0) return;
+      var dip = state.diplomacy[k] && state.diplomacy[k][pk];
+      if (!dip) return;
+      // 적대적일수록 적극적
+      var mod = (dip.war ? 1.6 : 1) + (dip.relation < 0 ? 0.5 : 0);
+      if (Math.random() >= chance * mod) return;
+      // 플레이어 성 하나의 민심을 소폭↓ 또는 플레이어 무장 충성 소폭↓
+      var mine = citiesOf(pk);
+      if (mine.length && Math.random() < 0.6) {
+        var tc = mine[Math.floor(Math.random() * mine.length)];
+        var d = randInt(3, 7);
+        tc.popularity = clampStat(tc.popularity - d);
+        pushLog('[적 모략] ' + (S.KINGDOMS[k] ? S.KINGDOMS[k].name : k) + '의 공작으로 ' + tc.name + '의 민심이 흔들렸다.');
+      } else {
+        var mineGens = state.generals.filter(function (g) { return g.kingdom === pk; });
+        if (mineGens.length) {
+          var tg = mineGens[Math.floor(Math.random() * mineGens.length)];
+          var dl = randInt(2, 5);
+          tg.loyalty = clampStat((tg.loyalty || 60) - dl);
+          pushLog('[적 모략] ' + (S.KINGDOMS[k] ? S.KINGDOMS[k].name : k) + '의 이반공작으로 ' + tg.name + '의 충성이 흔들렸다.');
+        }
+      }
+    });
+  }
+
   // ---- 이벤트 API ----
   var eventApi = {
     boostKingdomTroops: function (st, k, mult) {
@@ -1956,6 +2308,9 @@
         state.diplomacy[state.playerKingdom][k].relation = rel.relation;
       }
     });
+
+    // 선택적 AI 계략(플레이어 세력 대상, 소극적). state 수치만 변경하므로 안전.
+    aiRunSchemes();
   }
 
   function aiAttack(attacker, defender) {
@@ -2188,6 +2543,13 @@
     // AI 세력 행동
     runAI();
 
+    // 전략 계략: 쿨다운 1 감소(0 미만 방지), 턴당 사용 횟수 리셋
+    if (!state.schemeCd || typeof state.schemeCd !== 'object') state.schemeCd = {};
+    Object.keys(state.schemeCd).forEach(function (id) {
+      state.schemeCd[id] = Math.max(0, (state.schemeCd[id] || 0) - 1);
+    });
+    state.schemesUsedThisTurn = 0;
+
     // 턴/연도 진행
     state.turn += 1;
     state.year += 1;
@@ -2379,6 +2741,10 @@
       if (Array.isArray(loaded.generals)) {
         loaded.generals.forEach(function (g) { ensureGrowth(g); });
       }
+      // 전략 계략 호환: 중첩 객체/숫자 필드 방어적 보정(구세이브 또는 null 저장 대비)
+      if (!loaded.schemeCd || typeof loaded.schemeCd !== 'object') loaded.schemeCd = {};
+      if (!loaded.intel || typeof loaded.intel !== 'object') loaded.intel = {};
+      if (typeof loaded.schemesUsedThisTurn !== 'number') loaded.schemesUsedThisTurn = 0;
       // 로드 직후엔 오버레이/임시 UI 상태 정리
       loaded.overlay = null;
       loaded.battle = null; loaded.duel = null; loaded.debate = null;
@@ -2496,6 +2862,20 @@
     recruitChance: recruitChance,
     recruitTarget: recruitTarget,
     swornOath: swornOath,
+    // 전략 계략(謀略) — 전투 밖 모략
+    SCHEMES: (global.SAMGUK && global.SAMGUK.SCHEMES) || [],
+    schemeById: (global.SAMGUK && global.SAMGUK.schemeById) || function () { return null; },
+    schemeAgent: schemeAgent,
+    schemeChance: schemeChance,
+    schemeResistance: schemeResistance,
+    schemeCooldown: schemeCooldown,
+    schemeBlockReason: schemeBlockReason,
+    canUseScheme: canUseScheme,
+    executeScheme: executeScheme,
+    schemeTargetCities: schemeTargetCities,
+    schemeTargetKingdoms: schemeTargetKingdoms,
+    schemeTargetGenerals: schemeTargetGenerals,
+    SCHEMES_PER_TURN_RULER: SCHEMES_PER_TURN_RULER,
     dismissEvent: dismissEvent,
     chooseEventOption: chooseEventOption,
     dismissReport: dismissReport,
