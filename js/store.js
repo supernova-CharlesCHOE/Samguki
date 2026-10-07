@@ -1766,6 +1766,14 @@
     return (state.schemeCd && state.schemeCd[schemeId]) || 0;
   }
 
+  // 장수제 계략 비용(개인재산 금). 군주제의 국고 costGold 를 그대로 쓰면 개인재산(시작 300,
+  // 턴당 60~300 증가)으로는 초반 장수가 전혀 감당할 수 없으므로, officerStudy(정액 150금)와
+  // 비슷한 수준이 되도록 기준값의 1/4(25금 단위 올림)로 축소한다. 실제 자원 소비는 금 + 공훈(costMerit)
+  // 둘 다로, 공훈이 더 이상 사장 데이터가 되지 않게 한다.
+  function schemeOfficerGold(scheme) {
+    return Math.max(50, Math.round((scheme.costGold * 0.25) / 25) * 25);
+  }
+
   // 사용 가능 여부(공통 가드). 사유 문자열 반환(가능하면 null).
   function schemeBlockReason(schemeId) {
     var scheme = schemeById(schemeId);
@@ -1773,7 +1781,9 @@
     if (schemeCooldown(schemeId) > 0) return scheme.name + '은(는) 재사용 대기 중입니다. (' + schemeCooldown(schemeId) + '턴)';
     if (state.playMode === 'officer') {
       if (state.actedThisTurn) return '이번 턴에는 이미 근무했습니다.';
-      if (state.personalGold < scheme.costGold) return '재산이 부족합니다. (' + scheme.costGold + '금 필요)';
+      var og = schemeOfficerGold(scheme);
+      if (state.personalGold < og) return '재산이 부족합니다. (' + og + '금 필요)';
+      if ((state.merit || 0) < scheme.costMerit) return '공훈이 부족합니다. (공훈 ' + scheme.costMerit + ' 필요)';
     } else {
       if ((state.schemesUsedThisTurn || 0) >= SCHEMES_PER_TURN_RULER) return '이번 턴 계략 횟수를 모두 사용했습니다.';
       var pk = state.playerKingdom;
@@ -1823,7 +1833,10 @@
   // 코스트 차감 + 가드 소비(모드별). 성공 시 true.
   function spendSchemeCost(scheme) {
     if (state.playMode === 'officer') {
-      state.personalGold -= scheme.costGold;
+      // 축소된 개인재산 금 + 공훈 소비. 공훈은 승진 판정을 유발하는 addMerit 대신
+      // state.merit 를 직접 차감하고 음수가 되지 않도록 가드한다.
+      state.personalGold = Math.max(0, state.personalGold - schemeOfficerGold(scheme));
+      state.merit = Math.max(0, (state.merit || 0) - scheme.costMerit);
       state.actedThisTurn = true;
     } else {
       state.gold[state.playerKingdom] -= scheme.costGold;
@@ -2869,6 +2882,7 @@
     schemeChance: schemeChance,
     schemeResistance: schemeResistance,
     schemeCooldown: schemeCooldown,
+    schemeOfficerGold: schemeOfficerGold,
     schemeBlockReason: schemeBlockReason,
     canUseScheme: canUseScheme,
     executeScheme: executeScheme,

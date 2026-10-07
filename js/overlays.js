@@ -821,7 +821,9 @@
     function schemeRow(sc) {
       var cd = store.schemeCooldown(sc.id);
       var blocked = store.schemeBlockReason(sc.id); // null 이면 사용 가능
-      var costText = officerMode ? (sc.costGold.toLocaleString() + '금') : (sc.costGold.toLocaleString() + '금');
+      var costText = officerMode
+        ? (store.schemeOfficerGold(sc).toLocaleString() + '금 · 공훈 ' + sc.costMerit)
+        : (sc.costGold.toLocaleString() + '금');
 
       // 대상 select 구성
       var selA = null, selB = null, controls = [], ctxBuilder;
