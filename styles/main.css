@@ -280,6 +280,26 @@ body {
 .general-bio { font-size: 11px; color: var(--parchment-dark); line-height: 1.5; margin-top: 6px; }
 .general-locked-note { font-size: 12px; color: #8a7a55; padding: 10px 0; }
 
+/* ===== 무장 육성(레벨/경험치) ===== */
+.general-name-row { display: flex; align-items: center; gap: 8px; }
+.general-level {
+  font-size: 11px; font-weight: bold; color: var(--parchment-dark);
+  background: rgba(0,0,0,0.3); border: 1px solid var(--gold);
+  border-radius: 10px; padding: 1px 7px; color: var(--gold-light); white-space: nowrap;
+}
+.general-exp { margin-top: 6px; }
+.general-exp-label { font-size: 10px; color: var(--parchment-dark); margin-bottom: 3px; }
+.general-exp-bar {
+  height: 6px; border-radius: 4px; overflow: hidden;
+  background: var(--parchment-dark); border: 1px solid var(--border);
+}
+.general-exp-fill {
+  height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--gold), var(--gold-light));
+  transition: width 0.3s ease;
+}
+.general-exp-fill.maxed { background: var(--gold-light); }
+
 /* ===== 전투 ===== */
 .battle-panel { width: min(760px, 94vw); }
 .battle-arena { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px; }

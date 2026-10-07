@@ -215,6 +215,21 @@
       ));
     }
 
+    // 무장 육성 경험치 바 (현재 레벨 진행도). 상한 도달 시 MAX 표시.
+    function expBar(g) {
+      var lv = g.level || 1;
+      var maxed = lv >= store.GENERAL_LEVEL_MAX;
+      var need = store.generalExpForLevel(lv);
+      var cur = g.levelExp || 0;
+      var pct = maxed ? 100 : Math.max(0, Math.min(100, (cur / need) * 100));
+      return el('div.general-exp', null, [
+        el('div.general-exp-label', { text: maxed ? '경험치 MAX' : ('경험치 ' + cur + ' / ' + need) }),
+        el('div.general-exp-bar', null, [
+          el('div.general-exp-fill' + (maxed ? '.maxed' : ''), { style: { width: pct + '%' } })
+        ])
+      ]);
+    }
+
     function card(g, locked) {
       // 'free'(재야) 등 KINGDOMS에 없는 소속도 안전하게 처리
       var kd = K(g.kingdom);
@@ -227,7 +242,10 @@
         el('div.general-top', null, [
           UI.avatar(locked ? '?' : g.name, color, 52),
           el('div.general-id', null, [
-            el('div.general-name', { text: locked ? '???' : g.name }),
+            el('div.general-name-row', null, [
+              el('div.general-name', { text: locked ? '???' : g.name }),
+              el('span.general-level', { text: 'Lv.' + (g.level || 1) })
+            ]),
             el('div.general-kingdom', { text: kname + (locked ? '' : ' · ' + assignment) })
           ])
         ]),
@@ -238,6 +256,7 @@
             statWithSpirit('지력', g, 'intellect', '#2980b9'),
             statWithSpirit('정치', g, 'politics', '#27ae60'),
             el('div.general-loyalty', { text: '충성 ' + g.loyalty }),
+            expBar(g),
             (g.sworn && g.sworn.length) ? el('div.general-sworn', {
               text: '의형제: ' + g.sworn.map(function (sid) { var s = store.generalById(sid); return s ? s.name : ''; }).filter(Boolean).join(', ')
             }) : null,

@@ -68,6 +68,15 @@
   var SKILL_EXP_PER_LEVEL = 100; // 레벨당 필요 숙련도
   var SKILL_MAX = 4;
 
+  // ── 무장 육성(장수 성장) 체계 (KOEI 삼국지식 레벨/경험치) ──
+  // 전투·내정에서 경험치(levelExp)를 쌓아 레벨업(level)하면 능력치가 소폭 영구 성장한다.
+  // 레거시 'exp' 필드는 삼혼 수련용으로 예약 — 육성에는 별도 필드명(level/levelExp)을 쓴다.
+  var GENERAL_LEVEL_MAX = 20; // 레벨 상한
+  // 다음 레벨에 필요한 경험치 (완만한 성장 곡선): Lv1→2 100, Lv2→3 160, ...
+  function generalExpForLevel(level) {
+    return 100 + ((level || 1) - 1) * 60;
+  }
+
   // 능력치로부터 초기 기능 레벨 추정 (역사 인물의 개성 반영)
   function deriveSkills(g) {
     var s = {};
@@ -100,9 +109,57 @@
         free: g.free === true,// 재야(무소속) 무장 여부
         // 기능(技能) 레벨/숙련도 (태합입지전5 참고)
         skills: skills,
-        skillExp: skillExp
+        skillExp: skillExp,
+        // 무장 육성(장수 성장): 레벨/누적 경험치
+        level: 1,
+        levelExp: 0
       };
     });
+  }
+
+  // 방어적 초기화: 육성 필드가 없는(구세이브) 무장에 기본값을 채운다
+  function ensureGrowth(g) {
+    if (!g) return;
+    if (typeof g.level !== 'number') g.level = 1;
+    if (typeof g.levelExp !== 'number') g.levelExp = 0;
+  }
+
+  // 레벨업 시 성향(아키타입)에 맞춰 base 능력치를 소폭 성장시킨다.
+  // 데이터에 archetype 필드가 없으므로 기존 능력치로 성향을 추론한다 —
+  // 가장 높은 능력치를 주 성장축(+2), 둘째로 높은 능력치를 보조축(+1)으로 올린다.
+  // 모든 성장은 base 능력치에 직접 더하고 Math.min(100, ...) 로 클램프한다.
+  // effStat() 가 base+삼혼보너스를 읽으므로 전투/일기토/설전/AI/UI 전반에 자동 반영된다.
+  function applyGrowth(g) {
+    var keys = ['command', 'force', 'intellect', 'politics'];
+    var ranked = keys.slice().sort(function (a, b) { return (g[b] || 0) - (g[a] || 0); });
+    var primary = ranked[0], secondary = ranked[1];
+    g[primary] = Math.min(100, (g[primary] || 0) + 2);
+    g[secondary] = Math.min(100, (g[secondary] || 0) + 1);
+    return { primary: primary, secondary: secondary };
+  }
+
+  var STAT_LABEL = { command: '통솔', force: '무력', intellect: '지력', politics: '정치' };
+
+  // 중앙 경험치 획득 헬퍼 (gainSkillExp 선례를 따른다).
+  // silent=true 면 로그/토스트를 생략한다(대량/AI 측 호출용).
+  function gainGeneralExp(g, amount, silent) {
+    if (!g || !amount) return;
+    ensureGrowth(g);
+    if (g.level >= GENERAL_LEVEL_MAX) return;
+    g.levelExp += amount;
+    while (g.levelExp >= generalExpForLevel(g.level) && g.level < GENERAL_LEVEL_MAX) {
+      g.levelExp -= generalExpForLevel(g.level);
+      g.level++;
+      var grew = applyGrowth(g);
+      if (!silent) {
+        var summary = STAT_LABEL[grew.primary] + '+2, ' + STAT_LABEL[grew.secondary] + '+1';
+        pushLog('[육성] ' + g.name + '이(가) Lv.' + g.level + '(으)로 성장했다. (' + summary + ')');
+        if (g.id === state.playerGeneralId || g.kingdom === state.playerKingdom) {
+          toast(g.name + ' Lv.' + g.level + ' 성장! (' + summary + ')');
+        }
+      }
+    }
+    if (g.level >= GENERAL_LEVEL_MAX) g.levelExp = 0;
   }
 
   // 기능 레벨 조회/숙련도 증가 (레벨업 시 로그/토스트)
@@ -386,6 +443,7 @@
     gainSkillExp(g, kind === 'commerce' ? 'arithmetic' : (kind === 'defense' ? 'etiquette' : 'arithmetic'), 30);
     var goldGain = 60 + arith * 20;
     state.personalGold += goldGain;
+    gainGeneralExp(g, 10, false); // 무장 육성: 내정 근무 경험치
     state.actedThisTurn = true;
     toast('내정 근무 완료 (공훈 +' + merit + ', 금 +' + goldGain + ')');
     notify();
@@ -540,6 +598,17 @@
     return 0.7 + (p / 100) * 0.6;
   }
 
+  // 성에 배치된 무장 중 정치가 가장 높은 담당관에게 내정 경험치를 지급한다.
+  // 담당관이 없으면 아무 일도 하지 않는다.
+  function awardAdminExp(c, amount) {
+    var best = null, bestP = -1;
+    (c.generals || []).forEach(function (gid) {
+      var g = generalById(gid);
+      if (g) { var p = effStat(g, 'politics'); if (p > bestP) { bestP = p; best = g; } }
+    });
+    if (best) gainGeneralExp(best, amount, false);
+  }
+
   // 내정: 개발 (농업/상업/치안은 시설 레벨 상한까지, 담당관 정치로 효율 보정)
   function developCity(cityId, kind) {
     var c = cityById(cityId);
@@ -558,6 +627,7 @@
       c.popularity = Math.max(0, c.popularity - 3); // 징집은 민심을 약간 깎는다
       toast(c.name + '에서 ' + recruited.toLocaleString() + '명을 모집했습니다. (군량 -' + riceCost + ')');
       pushLog(c.name + '에서 병사 ' + recruited.toLocaleString() + '명을 모집했다.');
+      awardAdminExp(c, 8);
       notify();
       return;
     }
@@ -569,6 +639,7 @@
       state.gold[pk] -= reliefCost;
       c.popularity = Math.min(100, c.popularity + 8);
       toast(c.name + '에 선정을 베풀어 민심이 올랐습니다. (민심 +8)');
+      awardAdminExp(c, 10);
       notify();
       return;
     }
@@ -588,6 +659,7 @@
     var gain = Math.round(6 * devEfficiency(c));
     c[statKey] = Math.min(cap, c[statKey] + gain);
     toast(c.name + ' 개발 완료 (+' + gain + ', 상한 ' + cap + ')');
+    awardAdminExp(c, 10);
     notify();
   }
 
@@ -988,7 +1060,27 @@
       to.troops = b.defTroops;
       pushLog(S.KINGDOMS[b.attackerKingdom].name + '의 ' + to.name + ' 공략이 실패했다.');
     }
+    // ── 무장 육성: 전투 참여 경험치 지급 (승패/점령/흐름 로직은 변경하지 않음) ──
+    awardBattleExp(b);
     checkEndConditions();
+  }
+
+  // 전투 결과에 따라 참여 무장에게 경험치를 지급한다.
+  // 승리: 주장 큰 경험치·지원 중간 / 패배·퇴각: 참여 소량. 수비측도 참여 경험치 소량.
+  function awardBattleExp(b) {
+    function give(id, amount, silent) {
+      if (!id || !amount) return;
+      var g = generalById(id);
+      if (g) gainGeneralExp(g, amount, silent);
+    }
+    var win = b.result === 'win';
+    var atkMain = win ? 50 : 12;        // 공격 주장
+    var atkSup = win ? 20 : 10;         // 공격 지원
+    var defAmt = win ? 15 : 25;         // 수비측(방어 성공 시 더 많이)
+    give(b.atkGen, atkMain, false);
+    (b.atkSupport || []).forEach(function (id) { give(id, atkSup, false); });
+    give(b.defGen, defAmt, false);
+    (b.defSupport || []).forEach(function (id) { give(id, Math.round(defAmt * 0.6), false); });
   }
 
   function endBattle() {
@@ -1723,6 +1815,8 @@
         targetCity.generals = [];
       }
       from.troops = Math.max(0, from.troops - deploy);
+      // 무장 육성: AI 공격 주장 경험치 (silent — AI 측 레벨업은 토스트 생략)
+      if (atkGen) gainGeneralExp(atkGen, 30, true);
       pushLog(S.KINGDOMS[attacker].name + '이 ' + targetCity.name + '을(를) 점령했다.');
       if (isPlayerLoss) toast(S.KINGDOMS[attacker].name + '에게 ' + targetCity.name + '을(를) 빼앗겼습니다!');
     } else {
@@ -2068,6 +2162,10 @@
       Object.keys(fresh).forEach(function (key) {
         if (!(key in loaded)) loaded[key] = fresh[key];
       });
+      // 무장 육성 호환: 구세이브(level/levelExp 없음) 무장에 기본값 백필
+      if (Array.isArray(loaded.generals)) {
+        loaded.generals.forEach(function (g) { ensureGrowth(g); });
+      }
       // 로드 직후엔 오버레이/임시 UI 상태 정리
       loaded.overlay = null;
       loaded.battle = null; loaded.duel = null; loaded.debate = null;
@@ -2146,6 +2244,9 @@
     SKILL_EXP_PER_LEVEL: SKILL_EXP_PER_LEVEL,
     skillLevel: skillLevel,
     skillDef: skillDef,
+    // 무장 육성(장수 성장)
+    generalExpForLevel: generalExpForLevel,
+    GENERAL_LEVEL_MAX: GENERAL_LEVEL_MAX,
     selectCity: selectCity,
     openOverlay: openOverlay,
     closeOverlay: closeOverlay,
